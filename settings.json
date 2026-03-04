@@ -1,0 +1,6 @@
+{
+  "Port": 5052,
+  "Host": "+",
+  "InstanceName": "Proxy-1",
+  "ProxyUrl": "https://api.open-meteo.com"
+}
