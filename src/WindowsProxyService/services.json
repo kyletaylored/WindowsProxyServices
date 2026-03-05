@@ -1,0 +1,16 @@
+[
+  {
+    "InstanceName": "Proxy-1",
+    "ServiceDescription": "A simple proxy service for Open-Meteo API",
+    "Host": "+",
+    "Port": 5052,
+    "ProxyUrl": "https://api.open-meteo.com"
+  },
+  {
+    "InstanceName": "Proxy-2",
+    "ServiceDescription": "A simple proxy service for Cat Facts API",
+    "Host": "+",
+    "Port": 5053,
+    "ProxyUrl": "https://catfact.ninja"
+  }
+]
