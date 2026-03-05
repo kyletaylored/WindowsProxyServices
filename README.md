@@ -1,21 +1,23 @@
 # WindowsProxyServices
 
-A .NET 8 Worker Service that acts as a configurable HTTP reverse proxy using [YARP](https://microsoft.github.io/reverse-proxy/). A single compiled binary can be deployed as multiple named Windows Service instances, each forwarding traffic to a different upstream URL.
+A test harness for validating **Datadog SSI (Single Step Installation) auto-instrumentation** on Windows. It provisions multiple named .NET Windows Services — each a lightweight HTTP reverse proxy — giving you a realistic set of live .NET processes to target with Workload Selection rules.
+
+A single compiled binary (`WindowsProxyService.exe`) is deployed as multiple Windows Service instances, each forwarding traffic to a different upstream URL and listening on its own port. This lets you verify that SSI rules correctly instrument (or skip) specific processes based on executable name, DLL name, or naming patterns.
 
 ## Architecture
 
 - **Runtime:** .NET 8, Worker Service host
-- **Proxying:** YARP (Yet Another Reverse Proxy) — high-performance, no manual request plumbing
+- **Proxying:** YARP (Yet Another Reverse Proxy) — no manual request plumbing
 - **Logging:** JSON structured logging via `AddJsonConsole`, with `InstanceName` scoped on every request
-- **Configuration:** `services.json` — a shared array of instance definitions
-- **Deployment:** `sc.exe` via PowerShell automation
+- **Configuration:** `services.json` — array of instance definitions; `rules.toml` — Workload Selection rules
+- **Deployment:** `sc.exe` via PowerShell (`deploy.ps1`)
 
 ## Project Structure
 
 ```
 src/WindowsProxyService/   Source project
 scripts/                   PowerShell deploy/install/uninstall scripts
-_reference/old_plan/       Legacy .NET Framework implementation (reference only)
+rules.toml                 Datadog Workload Selection rules (compile before use)
 ```
 
 ## Configuration — services.json
@@ -38,7 +40,7 @@ _reference/old_plan/       Legacy .NET Framework implementation (reference only)
   },
   {
     "InstanceName": "JsonPlaceholder",
-    "ServiceDescription": "Proxies requests to JSONPlaceholder — fake REST API for testing (no auth required)",
+    "ServiceDescription": "Proxies requests to JSONPlaceholder -- fake REST API for testing (no auth required)",
     "Host": "+",
     "Port": 5054,
     "ProxyUrl": "https://jsonplaceholder.typicode.com"
@@ -115,6 +117,78 @@ Get-Service WindowsProxyService.* | Start-Service
 dotnet run --project src/WindowsProxyService -- --name OpenMeteo
 ```
 
+## Datadog SSI — Workload Selection
+
+This project exists to test Datadog's **host-level SSI auto-instrumentation** for .NET on Windows. With SSI enabled, the Datadog tracer automatically attaches to .NET processes on startup. **Workload Selection** rules let you control exactly which processes are instrumented.
+
+### Prerequisites
+
+1. Install the Datadog Agent with SSI enabled:
+
+```powershell
+$p = Start-Process -Wait -PassThru msiexec -ArgumentList '/qn /i "https://windows-agent.datadoghq.com/datadog-agent-7-latest.amd64.msi" /log C:\Windows\SystemTemp\install-datadog.log APIKEY="<YOUR_API_KEY>" SITE="datadoghq.com" DD_APM_INSTRUMENTATION_ENABLED="host" DD_APM_INSTRUMENTATION_LIBRARIES="dotnet:3"'
+```
+
+2. Install the rule compiler:
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/DataDog/dd-policy-engine/releases/download/v0.1.1/dd-rules-converter-win-x64.zip" -OutFile "dd-rules-converter.zip"
+Expand-Archive -Path "dd-rules-converter.zip" -DestinationPath "C:\tools"
+```
+
+### Compile and apply rules.toml
+
+Edit `rules.toml` in the repo root to define which processes to instrument, then compile it:
+
+```powershell
+C:\tools\dd-rules-converter.exe -rules rules.toml -output "C:\ProgramData\Datadog\managed\rc-orgwide-wls-policy.bin"
+```
+
+The tracer loads the compiled policy automatically the next time a .NET process starts — no agent restart needed. Restart the proxy services to pick up the new rules:
+
+```powershell
+Get-Service WindowsProxyService.* | Restart-Service
+```
+
+### How the proxy services map to rule selectors
+
+All instances share one binary, so `process.executable` matches all of them at once. Use `dotnet.dll` or a naming convention if you need per-instance targeting.
+
+| Selector | Value | Matches |
+| --- | --- | --- |
+| `process.executable` | `WindowsProxyService.exe` | All instances |
+| `process.executable` | `*ProxyService.exe` | All instances (wildcard suffix) |
+| `dotnet.dll` | `WindowsProxyService.dll` | All instances (by entry-point DLL) |
+
+### Example rules (see rules.toml for full file)
+
+```toml
+[instrument-all-proxy-instances]
+description = "Instrument all WindowsProxyService instances"
+instrument  = true
+expression  = "process.executable:WindowsProxyService.exe runtime.language:dotnet"
+
+[instrument-by-name-suffix]
+description = "Instrument any .NET process whose executable ends with ProxyService.exe"
+instrument  = true
+expression  = "process.executable:*ProxyService.exe runtime.language:dotnet"
+```
+
+### Troubleshooting
+
+Enable debug logging to inspect rule evaluation:
+
+```powershell
+$env:DD_TRACE_DEBUG = "true"
+$env:DD_TRACE_LOG_DIRECTORY = "C:\logs\datadog"
+```
+
+Confirm the compiled policy file exists and is readable:
+
+```
+C:\ProgramData\Datadog\managed\rc-orgwide-wls-policy.bin
+```
+
 ## Validate
 
 ### Status endpoint (all instances)
@@ -170,7 +244,7 @@ Invoke-RestMethod "http://localhost:5054/posts/1"
 # List all comments on a post
 Invoke-RestMethod "http://localhost:5054/posts/1/comments"
 
-# Create a new post (simulated — returns the created resource)
+# Create a new post (simulated -- returns the created resource)
 Invoke-RestMethod "http://localhost:5054/posts" -Method Post `
   -ContentType "application/json" `
   -Body '{"title":"Test","body":"Hello proxy","userId":1}'
@@ -219,18 +293,24 @@ Invoke-RestMethod "http://localhost:5056/jokes/search?query=computer"
 
 Each instance is registered under `WindowsProxyService.<InstanceName>`:
 
-| Service Name | Port | Upstream |
-|---|---|---|
-| `WindowsProxyService.OpenMeteo` | 5052 | https://api.open-meteo.com |
-| `WindowsProxyService.CatFacts` | 5053 | https://catfact.ninja |
+| Service Name                          | Port | Upstream                             |
+| ------------------------------------- | ---- | ------------------------------------ |
+| `WindowsProxyService.OpenMeteo`       | 5052 | https://api.open-meteo.com           |
+| `WindowsProxyService.CatFacts`        | 5053 | https://catfact.ninja                |
 | `WindowsProxyService.JsonPlaceholder` | 5054 | https://jsonplaceholder.typicode.com |
-| `WindowsProxyService.DogCeo` | 5055 | https://dog.ceo |
-| `WindowsProxyService.ChuckNorris` | 5056 | https://api.chucknorris.io |
+| `WindowsProxyService.DogCeo`          | 5055 | https://dog.ceo                      |
+| `WindowsProxyService.ChuckNorris`     | 5056 | https://api.chucknorris.io           |
 
 ## Log Format
 
 Each log entry is a single-line JSON object:
 
 ```json
-{"Timestamp":"2026-03-05 10:15:00","Level":"Information","Message":"Proxy 'OpenMeteo' starting on +:5052, forwarding to https://api.open-meteo.com","Category":"WindowsProxyService.Program","Scopes":[{"Instance":"OpenMeteo"}]}
+{
+  "Timestamp": "2026-03-05 10:15:00",
+  "Level": "Information",
+  "Message": "Proxy 'OpenMeteo' starting on +:5052, forwarding to https://api.open-meteo.com",
+  "Category": "WindowsProxyService.Program",
+  "Scopes": [{ "Instance": "OpenMeteo" }]
+}
 ```

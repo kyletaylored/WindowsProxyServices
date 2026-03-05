@@ -1,0 +1,71 @@
+# rules.toml -- Datadog Workload Selection Rules
+#
+# These rules control which .NET workloads are auto-instrumented by the
+# Datadog tracer when SSI (Single Step Installation) is enabled at the host level.
+#
+# Compile this file into a binary policy with the rule compiler:
+#
+#   C:\tools\dd-rules-converter.exe -rules rules.toml -output "C:\ProgramData\Datadog\managed\rc-orgwide-wls-policy.bin"
+#
+# The tracer picks up the compiled policy automatically on the next process start.
+# No agent restart required.
+#
+# Syntax reference:
+#   process.executable   -- exact or wildcard match on the .exe file name
+#   dotnet.dll           -- match on the entry-point DLL name
+#   runtime.language     -- filter to a specific runtime (dotnet, node, cpp, ...)
+#   iis.application_pool -- match on IIS application pool name (not used here)
+#
+#   Wildcards: prefix*  *suffix  *contains*
+#   All matches are case-sensitive.
+#   Multiple selectors on one expression line are ANDed together.
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Instrument all WindowsProxyService instances
+#
+# All instances share the same binary (WindowsProxyService.exe) and are
+# differentiated only by the --name argument at launch. This rule catches
+# every instance in a single expression.
+# ---------------------------------------------------------------------------
+[instrument-all-proxy-instances]
+description = "Instrument all WindowsProxyService instances (exact executable match)"
+instrument = true
+expression = "process.executable:WindowsProxyService.exe runtime.language:dotnet"
+
+
+# ---------------------------------------------------------------------------
+# Instrument by wildcard suffix -- useful when multiple services share a
+# naming convention (e.g. anything ending in *ProxyService.exe).
+# ---------------------------------------------------------------------------
+[instrument-by-name-suffix]
+description = "Instrument any .NET process whose executable ends with ProxyService.exe"
+instrument = true
+expression = "process.executable:*ProxyService.exe runtime.language:dotnet"
+
+
+# ---------------------------------------------------------------------------
+# Instrument by DLL name -- targets the entry-point DLL rather than the
+# host executable name. Useful for self-contained or framework-dependent
+# apps where the host exe name may vary.
+# ---------------------------------------------------------------------------
+[instrument-by-dll]
+description = "Instrument by entry-point DLL name (framework-dependent deploy style)"
+instrument = true
+expression = "dotnet.dll:WindowsProxyService.dll runtime.language:dotnet"
+
+
+# ---------------------------------------------------------------------------
+# Disable a specific instance -- because all instances share one exe, you
+# cannot exclude a single instance by executable name alone. Use this
+# pattern if you rename individual instance binaries or target a different
+# naming convention.
+#
+# Example: disable any process whose exe starts with "WindowsProxy" but
+# whose DLL contains "Placeholder" (hypothetical per-instance binary layout).
+# ---------------------------------------------------------------------------
+[disable-placeholder-instance]
+description = "Example: disable instrumentation for a hypothetical JsonPlaceholder-specific binary"
+instrument = false
+expression = "process.executable:WindowsProxyServicePlaceholder.exe runtime.language:dotnet"
