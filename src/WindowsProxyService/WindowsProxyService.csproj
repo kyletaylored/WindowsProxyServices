@@ -15,7 +15,7 @@
 
   <ItemGroup>
     <!-- Copy services.json to output directory so it's next to the .exe -->
-    <Content Include="services.json">
+    <Content Update="services.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
