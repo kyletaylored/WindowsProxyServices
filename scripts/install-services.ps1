@@ -40,7 +40,7 @@ foreach ($instance in $instances) {
 
     $existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if ($existing) {
-        Write-Warning "Service '$serviceName' already exists — skipping. Run uninstall-services.ps1 first to reinstall."
+        Write-Warning "Service '$serviceName' already exists -- skipping. Run uninstall-services.ps1 first to reinstall."
         continue
     }
 

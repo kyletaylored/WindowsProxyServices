@@ -30,7 +30,7 @@ foreach ($instance in $instances) {
 
     $existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if (-not $existing) {
-        Write-Warning "Service '$serviceName' not found — skipping."
+        Write-Warning "Service '$serviceName' not found -- skipping."
         continue
     }
 

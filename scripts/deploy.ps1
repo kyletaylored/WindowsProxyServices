@@ -24,29 +24,25 @@
     .\scripts\deploy.ps1 -DeployPath "D:\MyServices\WindowsProxyService"
 #>
 param(
-    [string]$DeployPath   = "C:\Services\WindowsProxyService",
-    [string]$ProjectPath  = "src\WindowsProxyService\WindowsProxyService.csproj"
+    [string]$DeployPath  = "C:\Services\WindowsProxyService",
+    [string]$ProjectPath = "src\WindowsProxyService\WindowsProxyService.csproj"
 )
 
 $ErrorActionPreference = "Stop"
 $servicesJson = Join-Path $DeployPath "services.json"
 
-# ---------------------------------------------------------------------------
-# Helper: derive the Windows Service name from an instance name
-# ---------------------------------------------------------------------------
 function Get-ServiceName([string]$instanceName) {
     return "WindowsProxyService.$instanceName"
 }
 
 # ---------------------------------------------------------------------------
 # Step 1: Stop any running instances
-# (must happen before publish — Windows locks the .exe while the service runs)
+# Must happen before publish -- Windows locks the .exe while the service runs.
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "==> Stopping running instances..."
 
-# If services.json already exists in the deploy folder, use it to find names.
-# Otherwise, read from the source tree so a first-time deploy still works.
+# Prefer the already-deployed services.json; fall back to source tree on first run.
 $sourceServicesJson = Join-Path (Split-Path $PSScriptRoot) "src\WindowsProxyService\services.json"
 $jsonPath = if (Test-Path $servicesJson) { $servicesJson } else { $sourceServicesJson }
 
@@ -61,7 +57,7 @@ if (Test-Path $jsonPath) {
         }
     }
 } else {
-    Write-Host "    No services.json found yet — skipping stop step."
+    Write-Host "    No services.json found yet -- skipping stop step."
 }
 
 # ---------------------------------------------------------------------------
@@ -83,7 +79,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "    Publish succeeded."
 
 # ---------------------------------------------------------------------------
-# Step 3: Register services (first run only — skipped if already registered)
+# Step 3: Register services -- first run only, skipped if already registered.
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "==> Registering services (skipped for any already registered)..."
@@ -99,7 +95,7 @@ foreach ($instance in $instances) {
 
     $existing = Get-Service -Name $svcName -ErrorAction SilentlyContinue
     if ($existing) {
-        Write-Host "    $svcName already registered — skipping."
+        Write-Host "    $svcName already registered -- skipping."
     } else {
         Write-Host "    Registering $svcName..."
         sc.exe create $svcName binPath= $binPath start= auto DisplayName= $svcName | Out-Null
