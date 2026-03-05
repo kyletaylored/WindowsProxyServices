@@ -1,16 +1,37 @@
 [
   {
-    "InstanceName": "Proxy-1",
-    "ServiceDescription": "A simple proxy service for Open-Meteo API",
+    "InstanceName": "OpenMeteo",
+    "ServiceDescription": "Proxies requests to the Open-Meteo weather forecast API (no auth required)",
     "Host": "+",
     "Port": 5052,
     "ProxyUrl": "https://api.open-meteo.com"
   },
   {
-    "InstanceName": "Proxy-2",
-    "ServiceDescription": "A simple proxy service for Cat Facts API",
+    "InstanceName": "CatFacts",
+    "ServiceDescription": "Proxies requests to the Cat Facts API (no auth required)",
     "Host": "+",
     "Port": 5053,
     "ProxyUrl": "https://catfact.ninja"
+  },
+  {
+    "InstanceName": "JsonPlaceholder",
+    "ServiceDescription": "Proxies requests to JSONPlaceholder — fake REST API for testing (no auth required)",
+    "Host": "+",
+    "Port": 5054,
+    "ProxyUrl": "https://jsonplaceholder.typicode.com"
+  },
+  {
+    "InstanceName": "DogCeo",
+    "ServiceDescription": "Proxies requests to the Dog CEO random dog image API (no auth required)",
+    "Host": "+",
+    "Port": 5055,
+    "ProxyUrl": "https://dog.ceo"
+  },
+  {
+    "InstanceName": "ChuckNorris",
+    "ServiceDescription": "Proxies requests to the Chuck Norris jokes API (no auth required)",
+    "Host": "+",
+    "Port": 5056,
+    "ProxyUrl": "https://api.chucknorris.io"
   }
 ]

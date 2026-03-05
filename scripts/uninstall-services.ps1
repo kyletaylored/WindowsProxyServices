@@ -26,19 +26,19 @@ if (-not (Test-Path $servicesJson)) {
 $instances = Get-Content $servicesJson -Raw | ConvertFrom-Json
 
 foreach ($instance in $instances) {
-    $name = $instance.InstanceName
+    $serviceName = "WindowsProxyService.$($instance.InstanceName)"
 
-    $existing = Get-Service -Name $name -ErrorAction SilentlyContinue
+    $existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if (-not $existing) {
-        Write-Warning "Service '$name' not found — skipping."
+        Write-Warning "Service '$serviceName' not found — skipping."
         continue
     }
 
-    Write-Host "Stopping service: $name"
-    Stop-Service -Name $name -Force -ErrorAction SilentlyContinue
+    Write-Host "Stopping service: $serviceName"
+    Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
 
-    Write-Host "Deleting service: $name"
-    sc.exe delete $name | Out-Null
+    Write-Host "Deleting service: $serviceName"
+    sc.exe delete $serviceName | Out-Null
     Write-Host "  -> Removed."
 }
 

@@ -31,22 +31,25 @@ if (-not (Test-Path $servicesJson)) {
 $instances = Get-Content $servicesJson -Raw | ConvertFrom-Json
 
 foreach ($instance in $instances) {
-    $name        = $instance.InstanceName
-    $description = $instance.ServiceDescription
-    $binPath     = "`"$exePath`" --name $name"
+    $instanceName = $instance.InstanceName
+    $serviceName  = "WindowsProxyService.$instanceName"
+    $description  = $instance.ServiceDescription
 
-    $existing = Get-Service -Name $name -ErrorAction SilentlyContinue
+    # --name receives the bare InstanceName; the Windows service name gets the prefix
+    $binPath = "`"$exePath`" --name $instanceName"
+
+    $existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if ($existing) {
-        Write-Warning "Service '$name' already exists — skipping. Run uninstall-services.ps1 first to reinstall."
+        Write-Warning "Service '$serviceName' already exists — skipping. Run uninstall-services.ps1 first to reinstall."
         continue
     }
 
-    Write-Host "Creating service: $name  ($description)"
-    sc.exe create $name binPath= $binPath start= auto DisplayName= $name | Out-Null
-    sc.exe description $name $description | Out-Null
+    Write-Host "Creating service: $serviceName  ($description)"
+    sc.exe create $serviceName binPath= $binPath start= auto DisplayName= $serviceName | Out-Null
+    sc.exe description $serviceName $description | Out-Null
     Write-Host "  -> Created."
 }
 
 Write-Host ""
 Write-Host "Done. Start all instances with:"
-Write-Host "  Get-Service Proxy-* | Start-Service"
+Write-Host "  Get-Service WindowsProxyService.* | Start-Service"

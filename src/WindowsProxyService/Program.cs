@@ -18,7 +18,7 @@ for (var i = 0; i < args.Length - 1; i++)
 if (string.IsNullOrWhiteSpace(instanceName))
 {
     Console.Error.WriteLine("ERROR: --name <InstanceName> is required.");
-    Console.Error.WriteLine("       Example: WindowsProxyService.exe --name Proxy-1");
+    Console.Error.WriteLine("       Example: WindowsProxyService.exe --name OpenMeteo");
     return 1;
 }
 
@@ -61,7 +61,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Windows Service lifecycle (no-op on non-Windows)
 builder.Host.UseWindowsService(options =>
 {
-    options.ServiceName = config.InstanceName;
+    options.ServiceName = $"WindowsProxyService.{config.InstanceName}";
 });
 
 // Listen on the instance-specific port
