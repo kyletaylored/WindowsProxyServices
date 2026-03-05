@@ -14,7 +14,7 @@ A .NET 8 Worker Service that acts as a configurable HTTP reverse proxy using [YA
 
 ```
 src/WindowsProxyService/   Source project
-scripts/                   PowerShell install/uninstall scripts
+scripts/                   PowerShell deploy/install/uninstall scripts
 _reference/old_plan/       Legacy .NET Framework implementation (reference only)
 ```
 
@@ -65,7 +65,30 @@ _reference/old_plan/       Legacy .NET Framework implementation (reference only)
 - **Port** — the local port this instance listens on.
 - **ProxyUrl** — the upstream base URL. All incoming paths and query strings are appended.
 
-## Build & Publish
+## Deploy (recommended)
+
+Run `deploy.ps1` from an elevated terminal at the repo root. It handles everything in the correct order:
+
+1. Stop running instances (so the `.exe` is unlocked)
+2. `dotnet publish` (Release, win-x64, self-contained) directly into the deploy folder
+3. Register services with `sc.exe` — first run only, skipped on subsequent deploys
+4. Start all instances
+
+```powershell
+# From repo root, run as Administrator:
+.\scripts\deploy.ps1
+
+# Custom deploy path:
+.\scripts\deploy.ps1 -DeployPath "D:\MyServices\WindowsProxyService"
+```
+
+That's it — the same command works for first-time setup and every update after.
+
+## Manual Steps (advanced)
+
+These scripts are used internally by `deploy.ps1` but can be run individually if needed.
+
+**Publish only:**
 
 ```powershell
 dotnet publish src/WindowsProxyService/WindowsProxyService.csproj `
@@ -73,22 +96,14 @@ dotnet publish src/WindowsProxyService/WindowsProxyService.csproj `
   -o C:\Services\WindowsProxyService
 ```
 
-The `services.json` is copied to the output folder automatically.
-
-## Install as Windows Services
+**Register services (after a manual publish):**
 
 ```powershell
-# Run as Administrator
 .\scripts\install-services.ps1 -PublishPath "C:\Services\WindowsProxyService"
-```
-
-Start all instances:
-
-```powershell
 Get-Service WindowsProxyService.* | Start-Service
 ```
 
-## Uninstall
+**Uninstall all instances:**
 
 ```powershell
 .\scripts\uninstall-services.ps1 -PublishPath "C:\Services\WindowsProxyService"
