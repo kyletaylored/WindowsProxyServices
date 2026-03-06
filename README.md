@@ -74,17 +74,19 @@ Run `deploy.ps1` from an elevated terminal at the repo root. It handles everythi
 1. Stop running instances (so the `.exe` is unlocked)
 2. `dotnet publish` (Release, win-x64, self-contained) directly into the deploy folder
 3. Register services with `sc.exe` — first run only, skipped on subsequent deploys
-4. Start all instances
+4. Download `dd-rules-converter.exe` if not already present
+5. Compile `rules.toml` into `C:\ProgramData\Datadog\managed\rc-orgwide-wls-policy.bin`
+6. Start all instances
 
 ```powershell
 # From repo root, run as Administrator:
 .\scripts\deploy.ps1
 
-# Custom deploy path:
-.\scripts\deploy.ps1 -DeployPath "D:\MyServices\WindowsProxyService"
+# Custom deploy path or tool location:
+.\scripts\deploy.ps1 -DeployPath "D:\MyServices\WindowsProxyService" -RulesToolPath "D:\tools"
 ```
 
-That's it — the same command works for first-time setup and every update after.
+That's it — the same command works for first-time setup and every update after. Rules are recompiled on every deploy so changes to `rules.toml` are always picked up.
 
 ## Manual Steps (advanced)
 

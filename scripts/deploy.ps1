@@ -1,12 +1,15 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Full deploy: stop services, publish, register (first run only), start.
+    Full deploy: stop services, publish, register (first run only), compile rules, start.
 
 .DESCRIPTION
     Run this from the repo root to go from source to running Windows Services
     in one step. On the first run it registers each instance with sc.exe.
     On subsequent runs it just stops, republishes, and restarts.
+
+    Also ensures the Datadog rule compiler is present and (re)compiles rules.toml
+    into the Datadog managed policy directory on every deploy.
 
 .PARAMETER DeployPath
     Folder the binary and services.json are published into and run from.
@@ -16,20 +19,34 @@
     Path to the .csproj file, relative to where this script is called from.
     Defaults to src\WindowsProxyService\WindowsProxyService.csproj.
 
+.PARAMETER RulesToolPath
+    Folder where dd-rules-converter.exe is installed.
+    Defaults to C:\tools.
+
+.PARAMETER RulesToolVersion
+    Version of dd-rules-converter to download if not already present.
+    Defaults to v0.1.1.
+
 .EXAMPLE
-    # From the repo root, first-time or any subsequent deploy:
+    # From repo root, run as Administrator:
     .\scripts\deploy.ps1
 
     # Custom deploy path:
     .\scripts\deploy.ps1 -DeployPath "D:\MyServices\WindowsProxyService"
 #>
 param(
-    [string]$DeployPath  = "C:\Services\WindowsProxyService",
-    [string]$ProjectPath = "src\WindowsProxyService\WindowsProxyService.csproj"
+    [string]$DeployPath       = "C:\Services\WindowsProxyService",
+    [string]$ProjectPath      = "src\WindowsProxyService\WindowsProxyService.csproj",
+    [string]$RulesToolPath    = "C:\tools",
+    [string]$RulesToolVersion = "v0.1.1"
 )
 
 $ErrorActionPreference = "Stop"
+$repoRoot     = Split-Path $PSScriptRoot
 $servicesJson = Join-Path $DeployPath "services.json"
+$rulesConverter = Join-Path $RulesToolPath "dd-rules-converter.exe"
+$rulesFile    = Join-Path $repoRoot "rules.toml"
+$policyOutput = "C:\ProgramData\Datadog\managed\rc-orgwide-wls-policy.bin"
 
 function Get-ServiceName([string]$instanceName) {
     return "WindowsProxyService.$instanceName"
@@ -43,7 +60,7 @@ Write-Host ""
 Write-Host "==> Stopping running instances..."
 
 # Prefer the already-deployed services.json; fall back to source tree on first run.
-$sourceServicesJson = Join-Path (Split-Path $PSScriptRoot) "src\WindowsProxyService\services.json"
+$sourceServicesJson = Join-Path $repoRoot "src\WindowsProxyService\services.json"
 $jsonPath = if (Test-Path $servicesJson) { $servicesJson } else { $sourceServicesJson }
 
 if (Test-Path $jsonPath) {
@@ -105,7 +122,54 @@ foreach ($instance in $instances) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 4: Start all instances
+# Step 4: Ensure the Datadog rule compiler is present, download if missing.
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "==> Checking for Datadog rule compiler..."
+
+if (Test-Path $rulesConverter) {
+    Write-Host "    Found: $rulesConverter"
+} else {
+    Write-Host "    Not found -- downloading dd-rules-converter $RulesToolVersion..."
+
+    $zipUrl  = "https://github.com/DataDog/dd-policy-engine/releases/download/$RulesToolVersion/dd-rules-converter-win-x64.zip"
+    $zipFile = Join-Path $env:TEMP "dd-rules-converter.zip"
+
+    Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile
+    New-Item -ItemType Directory -Path $RulesToolPath -Force | Out-Null
+    Expand-Archive -Path $zipFile -DestinationPath $RulesToolPath -Force
+    Remove-Item $zipFile
+
+    if (-not (Test-Path $rulesConverter)) {
+        Write-Error "Download succeeded but $rulesConverter was not found after extraction. Check the archive layout."
+    }
+
+    Write-Host "    -> Installed to $rulesConverter"
+}
+
+# ---------------------------------------------------------------------------
+# Step 5: Compile rules.toml into the Datadog managed policy directory.
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "==> Compiling rules.toml..."
+
+if (-not (Test-Path $rulesFile)) {
+    Write-Error "rules.toml not found at $rulesFile. Aborting."
+}
+
+$policyDir = Split-Path $policyOutput
+New-Item -ItemType Directory -Path $policyDir -Force | Out-Null
+
+& $rulesConverter -rules $rulesFile -output $policyOutput
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Rule compilation failed (exit code $LASTEXITCODE). Aborting."
+}
+
+Write-Host "    -> Policy written to $policyOutput"
+
+# ---------------------------------------------------------------------------
+# Step 6: Start all instances
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "==> Starting services..."
