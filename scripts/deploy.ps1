@@ -42,15 +42,27 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$repoRoot     = Split-Path $PSScriptRoot
-$servicesJson = Join-Path $DeployPath "services.json"
+$repoRoot       = Split-Path $PSScriptRoot
+$servicesJson   = Join-Path $DeployPath "services.json"
 $rulesConverter = Join-Path $RulesToolPath "dd-rules-converter.exe"
-$rulesFile    = Join-Path $repoRoot "rules.toml"
-$policyOutput = "C:\ProgramData\Datadog\managed\rc-orgwide-wls-policy.bin"
+$rulesFile      = Join-Path $repoRoot "rules.toml"
+$policyOutput   = "C:\ProgramData\Datadog\managed\rc-orgwide-wls-policy.bin"
 
 function Get-ServiceName([string]$instanceName) {
     return "WindowsProxyService.$instanceName"
 }
+
+# Resolve DD_VERSION from the latest git tag, falling back to the short commit hash.
+$ddVersion = & git -C $repoRoot describe --tags --abbrev=0 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $ddVersion) {
+    $ddVersion = & git -C $repoRoot rev-parse --short HEAD 2>$null
+}
+if ($LASTEXITCODE -ne 0 -or -not $ddVersion) {
+    $ddVersion = "0.0.0-unknown"
+}
+$ddVersion = $ddVersion.Trim()
+Write-Host ""
+Write-Host "==> DD_VERSION resolved to: $ddVersion"
 
 # ---------------------------------------------------------------------------
 # Step 1: Stop any running instances
@@ -122,7 +134,35 @@ foreach ($instance in $instances) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 4: Ensure the Datadog rule compiler is present, download if missing.
+# Step 4: Set Datadog environment variables on each service.
+# Runs every deploy so DD_VERSION always reflects the current build.
+# Written to HKLM:\SYSTEM\CurrentControlSet\Services\<Name>\Environment
+# as REG_MULTI_SZ -- read by the tracer at process startup.
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "==> Setting Datadog environment variables (DD_SERVICE, DD_VERSION)..."
+
+foreach ($instance in $instances) {
+    $svcName  = Get-ServiceName $instance.InstanceName
+    $ddService = "windowsproxyservice-$($instance.InstanceName.ToLower())"
+    $regPath   = "HKLM:\SYSTEM\CurrentControlSet\Services\$svcName"
+
+    if (-not (Test-Path $regPath)) {
+        Write-Warning "    Registry key not found for $svcName -- skipping (service may not be registered yet)."
+        continue
+    }
+
+    $envVars = @(
+        "DD_SERVICE=$ddService",
+        "DD_VERSION=$ddVersion"
+    )
+
+    Set-ItemProperty -Path $regPath -Name Environment -Value $envVars -Type MultiString
+    Write-Host "    $svcName -> DD_SERVICE=$ddService  DD_VERSION=$ddVersion"
+}
+
+# ---------------------------------------------------------------------------
+# Step 5: Ensure the Datadog rule compiler is present, download if missing.
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "==> Checking for Datadog rule compiler..."
@@ -148,7 +188,7 @@ if (Test-Path $rulesConverter) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 5: Compile rules.toml into the Datadog managed policy directory.
+# Step 6: Compile rules.toml into the Datadog managed policy directory.
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "==> Compiling rules.toml..."

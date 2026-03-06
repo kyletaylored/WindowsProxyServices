@@ -20,6 +20,16 @@ $ErrorActionPreference = "Stop"
 $exePath      = Join-Path $PublishPath "WindowsProxyService.exe"
 $servicesJson = Join-Path $PublishPath "services.json"
 
+# Resolve DD_VERSION from the latest git tag, falling back to the short commit hash.
+$ddVersion = & git describe --tags --abbrev=0 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $ddVersion) {
+    $ddVersion = & git rev-parse --short HEAD 2>$null
+}
+if ($LASTEXITCODE -ne 0 -or -not $ddVersion) {
+    $ddVersion = "0.0.0-unknown"
+}
+$ddVersion = $ddVersion.Trim()
+
 if (-not (Test-Path $exePath)) {
     Write-Error "Executable not found: $exePath`nRun 'dotnet publish' first and check -PublishPath."
 }
@@ -47,7 +57,15 @@ foreach ($instance in $instances) {
     Write-Host "Creating service: $serviceName  ($description)"
     sc.exe create $serviceName binPath= $binPath start= auto DisplayName= $serviceName | Out-Null
     sc.exe description $serviceName $description | Out-Null
-    Write-Host "  -> Created."
+
+    $ddService = "windowsproxyservice-$($instanceName.ToLower())"
+    $envVars   = @(
+        "DD_SERVICE=$ddService",
+        "DD_VERSION=$ddVersion"
+    )
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName" `
+        -Name Environment -Value $envVars -Type MultiString
+    Write-Host "  -> Created.  DD_SERVICE=$ddService  DD_VERSION=$ddVersion"
 }
 
 Write-Host ""
