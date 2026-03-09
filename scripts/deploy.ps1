@@ -53,14 +53,18 @@ function Get-ServiceName([string]$instanceName) {
 }
 
 # Resolve DD_VERSION from the latest git tag, falling back to the short commit hash.
-$ddVersion = & git -C $repoRoot describe --tags --abbrev=0 2>$null
-if ($LASTEXITCODE -ne 0 -or -not $ddVersion) {
-    $ddVersion = & git -C $repoRoot rev-parse --short HEAD 2>$null
+# 2>&1 merges stderr into the captured output so nothing leaks to the terminal;
+# $LASTEXITCODE is the authority on whether the command succeeded.
+$ddVersion = $null
+$_result = & git -C $repoRoot describe --tags --abbrev=0 2>&1
+if ($LASTEXITCODE -eq 0) { $ddVersion = "$_result".Trim() }
+
+if (-not $ddVersion) {
+    $_result = & git -C $repoRoot rev-parse --short HEAD 2>&1
+    if ($LASTEXITCODE -eq 0) { $ddVersion = "$_result".Trim() }
 }
-if ($LASTEXITCODE -ne 0 -or -not $ddVersion) {
-    $ddVersion = "0.0.0-unknown"
-}
-$ddVersion = $ddVersion.Trim()
+
+if (-not $ddVersion) { $ddVersion = "0.0.0-unknown" }
 Write-Host ""
 Write-Host "==> DD_VERSION resolved to: $ddVersion"
 

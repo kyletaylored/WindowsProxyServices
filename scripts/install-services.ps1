@@ -21,14 +21,18 @@ $exePath      = Join-Path $PublishPath "WindowsProxyService.exe"
 $servicesJson = Join-Path $PublishPath "services.json"
 
 # Resolve DD_VERSION from the latest git tag, falling back to the short commit hash.
-$ddVersion = & git describe --tags --abbrev=0 2>$null
-if ($LASTEXITCODE -ne 0 -or -not $ddVersion) {
-    $ddVersion = & git rev-parse --short HEAD 2>$null
+# 2>&1 merges stderr into the captured output so nothing leaks to the terminal;
+# $LASTEXITCODE is the authority on whether the command succeeded.
+$ddVersion = $null
+$_result = & git describe --tags --abbrev=0 2>&1
+if ($LASTEXITCODE -eq 0) { $ddVersion = "$_result".Trim() }
+
+if (-not $ddVersion) {
+    $_result = & git rev-parse --short HEAD 2>&1
+    if ($LASTEXITCODE -eq 0) { $ddVersion = "$_result".Trim() }
 }
-if ($LASTEXITCODE -ne 0 -or -not $ddVersion) {
-    $ddVersion = "0.0.0-unknown"
-}
-$ddVersion = $ddVersion.Trim()
+
+if (-not $ddVersion) { $ddVersion = "0.0.0-unknown" }
 
 if (-not (Test-Path $exePath)) {
     Write-Error "Executable not found: $exePath`nRun 'dotnet publish' first and check -PublishPath."
