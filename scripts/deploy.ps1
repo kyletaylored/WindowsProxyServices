@@ -53,17 +53,21 @@ function Get-ServiceName([string]$instanceName) {
 }
 
 # Resolve DD_VERSION from the latest git tag, falling back to the short commit hash.
-# 2>&1 merges stderr into the captured output so nothing leaks to the terminal;
-# $LASTEXITCODE is the authority on whether the command succeeded.
+# $ErrorActionPreference is temporarily set to "Continue" so that git writing to
+# stderr does not trigger a terminating error under the "Stop" preference above.
 $ddVersion = $null
-$_result = & git -C $repoRoot describe --tags --abbrev=0 2>&1
-if ($LASTEXITCODE -eq 0) { $ddVersion = "$_result".Trim() }
-
-if (-not $ddVersion) {
-    $_result = & git -C $repoRoot rev-parse --short HEAD 2>&1
+$ErrorActionPreference = "Continue"
+try {
+    $_result = & git -C $repoRoot describe --tags --abbrev=0 2>&1
     if ($LASTEXITCODE -eq 0) { $ddVersion = "$_result".Trim() }
-}
 
+    if (-not $ddVersion) {
+        $_result = & git -C $repoRoot rev-parse --short HEAD 2>&1
+        if ($LASTEXITCODE -eq 0) { $ddVersion = "$_result".Trim() }
+    }
+} finally {
+    $ErrorActionPreference = "Stop"
+}
 if (-not $ddVersion) { $ddVersion = "0.0.0-unknown" }
 Write-Host ""
 Write-Host "==> DD_VERSION resolved to: $ddVersion"

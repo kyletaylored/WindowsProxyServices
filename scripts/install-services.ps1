@@ -21,17 +21,21 @@ $exePath      = Join-Path $PublishPath "WindowsProxyService.exe"
 $servicesJson = Join-Path $PublishPath "services.json"
 
 # Resolve DD_VERSION from the latest git tag, falling back to the short commit hash.
-# 2>&1 merges stderr into the captured output so nothing leaks to the terminal;
-# $LASTEXITCODE is the authority on whether the command succeeded.
+# $ErrorActionPreference is temporarily set to "Continue" so that git writing to
+# stderr does not trigger a terminating error under the "Stop" preference above.
 $ddVersion = $null
-$_result = & git describe --tags --abbrev=0 2>&1
-if ($LASTEXITCODE -eq 0) { $ddVersion = "$_result".Trim() }
-
-if (-not $ddVersion) {
-    $_result = & git rev-parse --short HEAD 2>&1
+$ErrorActionPreference = "Continue"
+try {
+    $_result = & git describe --tags --abbrev=0 2>&1
     if ($LASTEXITCODE -eq 0) { $ddVersion = "$_result".Trim() }
-}
 
+    if (-not $ddVersion) {
+        $_result = & git rev-parse --short HEAD 2>&1
+        if ($LASTEXITCODE -eq 0) { $ddVersion = "$_result".Trim() }
+    }
+} finally {
+    $ErrorActionPreference = "Stop"
+}
 if (-not $ddVersion) { $ddVersion = "0.0.0-unknown" }
 
 if (-not (Test-Path $exePath)) {
