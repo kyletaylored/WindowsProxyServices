@@ -14,4 +14,12 @@
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Share the single services.json from the proxy service project -->
+    <Content Include="..\WindowsProxyService\services.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>services.json</Link>
+    </Content>
+  </ItemGroup>
+
 </Project>
