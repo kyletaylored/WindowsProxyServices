@@ -84,6 +84,17 @@ jobs:
           $publishDir = "${{ github.workspace }}\publish"
           $outputFile = "${{ github.workspace }}\installer\Files.wxs"
 
+          # Wix Guid="*" only works for components under standard Windows directories
+          # (ProgramFilesFolder, etc.).  Our path is custom, so we generate explicit
+          # deterministic GUIDs: MD5(namespace + filename) → same GUID every build,
+          # which is required for MSI upgrades to correctly track components.
+          $md5 = [System.Security.Cryptography.MD5]::Create()
+          function Get-FileGuid([string]$name) {
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes("WindowsProxyServices:$name")
+            $hash  = $md5.ComputeHash($bytes)
+            return [System.Guid]::new($hash).ToString('D').ToUpper()
+          }
+
           # Exclude the exe — it is declared in installer\Services.wxs
           $files = Get-ChildItem -Path $publishDir -File |
                    Where-Object { $_.Name -ne 'WindowsProxyService.exe' }
@@ -95,10 +106,10 @@ jobs:
           $sb.AppendLine('    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">') | Out-Null
 
           foreach ($file in $files) {
-            # Build a legal XML Id from the filename
-            $id  = 'f_' + ($file.Name -replace '[^a-zA-Z0-9]', '_')
-            $src = $file.FullName
-            $sb.AppendLine("      <Component Id=""$id"" Guid=""*"">") | Out-Null
+            $id   = 'f_' + ($file.Name -replace '[^a-zA-Z0-9]', '_')
+            $guid = Get-FileGuid $file.Name
+            $src  = $file.FullName
+            $sb.AppendLine("      <Component Id=""$id"" Guid=""$guid"">") | Out-Null
             $sb.AppendLine("        <File Id=""$id"" Source=""$src"" KeyPath=""yes"" />") | Out-Null
             $sb.AppendLine("      </Component>") | Out-Null
           }
