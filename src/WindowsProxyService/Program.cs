@@ -1,32 +1,46 @@
 using System.Text.Json;
-using Yarp.ReverseProxy.Configuration;
 using WindowsProxyService;
 
 // ---------------------------------------------------------------------------
-// 1. Parse --name argument
+// 1. Parse --name arguments
+//    Supports one or many names:
+//      --name OpenMeteo
+//      --name OpenMeteo CatFacts DogCeo
+//      --name OpenMeteo --name CatFacts
+//      --name * | --all              (every service in services.json)
 // ---------------------------------------------------------------------------
-var instanceName = string.Empty;
-for (var i = 0; i < args.Length - 1; i++)
+var names    = new List<string>();
+var startAll = false;
+
+for (var i = 0; i < args.Length; i++)
 {
-    if (args[i].Equals("--name", StringComparison.OrdinalIgnoreCase))
+    if (args[i].Equals("--all", StringComparison.OrdinalIgnoreCase))
     {
-        instanceName = args[i + 1];
-        break;
+        startAll = true;
+    }
+    else if (args[i].Equals("--name", StringComparison.OrdinalIgnoreCase))
+    {
+        // Consume all following values that don't begin with '--'
+        for (var j = i + 1; j < args.Length && !args[j].StartsWith("--"); j++, i++)
+        {
+            if (args[j] is "*" or "all") startAll = true;
+            else names.Add(args[j]);
+        }
     }
 }
 
-if (string.IsNullOrWhiteSpace(instanceName))
+if (!startAll && names.Count == 0)
 {
-    Console.Error.WriteLine("ERROR: --name <InstanceName> is required.");
-    Console.Error.WriteLine("       Example: WindowsProxyService.exe --name OpenMeteo");
+    Console.Error.WriteLine("ERROR: --name <InstanceName> [<InstanceName>...] is required.");
+    Console.Error.WriteLine("       Use '--name *' or '--all' to start every service.");
+    Console.Error.WriteLine("       Example: WindowsProxyService.exe --name OpenMeteo CatFacts");
     return 1;
 }
 
 // ---------------------------------------------------------------------------
-// 2. Load services.json and find matching instance config
+// 2. Load services.json and resolve the requested configs
 // ---------------------------------------------------------------------------
 var servicesJsonPath = Path.Combine(AppContext.BaseDirectory, "services.json");
-
 if (!File.Exists(servicesJsonPath))
 {
     Console.Error.WriteLine($"ERROR: services.json not found at: {servicesJsonPath}");
@@ -43,102 +57,29 @@ if (allInstances is null || allInstances.Count == 0)
     return 1;
 }
 
-var config = allInstances.FirstOrDefault(x =>
-    x.InstanceName.Equals(instanceName, StringComparison.OrdinalIgnoreCase));
+var configs = startAll
+    ? allInstances
+    : allInstances
+        .Where(x => names.Contains(x.InstanceName, StringComparer.OrdinalIgnoreCase))
+        .ToList();
 
-if (config is null)
+var missing = names
+    .Except(configs.Select(c => c.InstanceName), StringComparer.OrdinalIgnoreCase)
+    .ToList();
+
+if (missing.Count > 0)
 {
-    Console.Error.WriteLine($"ERROR: No instance named '{instanceName}' found in services.json.");
+    Console.Error.WriteLine($"ERROR: Unknown service name(s): {string.Join(", ", missing)}");
     Console.Error.WriteLine($"       Available: {string.Join(", ", allInstances.Select(x => x.InstanceName))}");
     return 1;
 }
 
 // ---------------------------------------------------------------------------
-// 3. Build the WebApplication host
+// 3. Run one WebApplication per selected service, all concurrently.
+//    UseWindowsService is only wired when a single instance is started
+//    (the normal Windows service deployment path). Multi-instance mode is
+//    a convenience for local development and runs as a plain console app.
 // ---------------------------------------------------------------------------
-var builder = WebApplication.CreateBuilder(args);
-
-// Windows Service lifecycle (no-op on non-Windows)
-builder.Host.UseWindowsService(options =>
-{
-    options.ServiceName = $"WindowsProxyService.{config.InstanceName}";
-});
-
-// Listen on the instance-specific port
-builder.WebHost.UseUrls($"http://{config.Host}:{config.Port}");
-
-// ---------------------------------------------------------------------------
-// 4. JSON structured logging
-// ---------------------------------------------------------------------------
-builder.Logging.ClearProviders();
-builder.Logging.AddJsonConsole(options =>
-{
-    options.IncludeScopes = true;
-    options.TimestampFormat = "yyyy-MM-dd HH:mm:ss ";
-    options.JsonWriterOptions = new JsonWriterOptions { Indented = false };
-});
-
-// ---------------------------------------------------------------------------
-// 5. YARP — one route, one cluster, destination = ProxyUrl
-// ---------------------------------------------------------------------------
-var routes = new[]
-{
-    new RouteConfig
-    {
-        RouteId   = "catch-all",
-        ClusterId = "upstream",
-        Match     = new RouteMatch { Path = "{**catch-all}" }
-    }
-};
-
-var clusters = new[]
-{
-    new ClusterConfig
-    {
-        ClusterId    = "upstream",
-        Destinations = new Dictionary<string, DestinationConfig>
-        {
-            ["primary"] = new DestinationConfig { Address = config.ProxyUrl }
-        }
-    }
-};
-
-builder.Services.AddReverseProxy()
-    .LoadFromMemory(routes, clusters);
-
-// Make instance config available for the status endpoint
-builder.Services.AddSingleton(config);
-
-// ---------------------------------------------------------------------------
-// 6. Build and configure the pipeline
-// ---------------------------------------------------------------------------
-var app = builder.Build();
-var logger = app.Services.GetRequiredService<ILogger<Program>>();
-
-// Scope every request log entry with the instance name
-app.Use(async (context, next) =>
-{
-    using var _ = logger.BeginScope(new Dictionary<string, object?> { ["Instance"] = config.InstanceName });
-    await next(context);
-});
-
-// Lightweight status endpoint — does not go through YARP
-app.MapGet("/api/status", (InstanceConfig cfg) => Results.Ok(new
-{
-    ok              = true,
-    serverTimeUtc   = DateTime.UtcNow,
-    instance        = cfg.InstanceName,
-    host            = cfg.Host,
-    port            = cfg.Port,
-    proxyUrl        = cfg.ProxyUrl
-}));
-
-// All other traffic is proxied upstream
-app.MapReverseProxy();
-
-logger.LogInformation(
-    "Proxy '{InstanceName}' starting on {Host}:{Port}, forwarding to {ProxyUrl}",
-    config.InstanceName, config.Host, config.Port, config.ProxyUrl);
-
-await app.RunAsync();
+var isSingle = configs.Count == 1;
+await Task.WhenAll(configs.Select(cfg => ProxyHost.RunAsync(cfg, args, isSingle)));
 return 0;

@@ -81,45 +81,56 @@ See [Local Development](#local-development) below.
 
 ### Running from the terminal
 
-Open five terminals for the proxy services plus one for the dashboard:
+The proxy service supports starting one or multiple instances in a single process:
 
 ```powershell
 # Terminal 1 — dashboard (http://localhost:5051)
 dotnet run --project src/WindowsDashboardService
 
-# Terminals 2–6 — one per proxy instance
-dotnet run --project src/WindowsProxyService -- --name OpenMeteo
-dotnet run --project src/WindowsProxyService -- --name CatFacts
-dotnet run --project src/WindowsProxyService -- --name JsonPlaceholder
-dotnet run --project src/WindowsProxyService -- --name DogCeo
-dotnet run --project src/WindowsProxyService -- --name ChuckNorris
+# Terminal 2 — all five proxy instances in one process
+dotnet run --project src/WindowsProxyService -- --all
 
 # Optional — tray app (separate window, needs dashboard running)
 dotnet run --project src/WindowsTrayApp
 ```
 
+Or start a subset of services:
+
+```powershell
+dotnet run --project src/WindowsProxyService -- --name OpenMeteo CatFacts
+```
+
 Open [http://localhost:5051](http://localhost:5051) to access the dashboard.
 
-> **Tip:** When running in console mode, the proxies log structured JSON to stdout. The service status shown in the dashboard will say **NotFound** (the Windows services aren't registered), but test requests still work.
+> **Tip:** When running in console mode the proxies log structured JSON to stdout. The dashboard uses HTTP port probing as a fallback when Windows services aren't registered, so status dots still reflect whether each proxy is actually up.
+
+**`--name` argument forms:**
+
+| Form | Behaviour |
+|------|-----------|
+| `--name OpenMeteo` | Start one instance |
+| `--name OpenMeteo CatFacts` | Start two instances in one process |
+| `--name OpenMeteo --name CatFacts` | Same, flags repeated |
+| `--name *` or `--all` | Start every service defined in `services.json` |
 
 ### Running from Visual Studio
 
-**Start the dashboard + one proxy instance (F5 workflow):**
+**Quickest setup — all services in two processes:**
 
 1. Open `WindowsProxyServices.sln`.
 2. Right-click `WindowsProxyService` → **Properties** → **Debug** → **General** → **Open debug launch profiles UI**.
-3. Set **Command line arguments** to `--name OpenMeteo`.
+3. Set **Command line arguments** to `--all`.
 4. Right-click the **Solution** → **Properties** → **Common Properties** → **Startup Project** → **Multiple Startup Projects**.
 5. Set `WindowsDashboardService` and `WindowsProxyService` to **Start**.
-6. Press **F5** — the dashboard starts on port 5051 and the OpenMeteo proxy on 5052.
+6. Press **F5** — the dashboard starts on port 5051 and all five proxies start on ports 5052–5056.
 
-**Run more proxy instances at the same time:**
+**Start a single proxy instance (e.g. for focused debugging):**
 
-Open additional terminals (View → Terminal) and `dotnet run` with the remaining `--name` values as shown above. Each instance picks up its port from `services.json`.
+Set the command line arguments to `--name OpenMeteo` (or whichever service you want) instead of `--all`. To run additional instances alongside it, open terminals and `dotnet run` with the remaining names.
 
 **Run the tray app:**
 
-Add `WindowsTrayApp` to the Multiple Startup Projects list, or start it separately from a terminal. It looks for `services.json` in its own directory; when running via `dotnet run` it reads it from `src/WindowsTrayApp/`, so copy or symlink `src/WindowsProxyService/services.json` there if you want the menu items to populate automatically.
+Add `WindowsTrayApp` to the Multiple Startup Projects list, or start it separately from a terminal.
 
 ---
 
@@ -289,7 +300,7 @@ Defines all proxy instances. Located at `src/WindowsProxyService/services.json` 
 
 | Field | Description |
 |-------|-------------|
-| `InstanceName` | Matches the `--name` argument. Windows Service name is `WindowsProxyService.<InstanceName>`. |
+| `InstanceName` | Matches the `--name` value. Windows Service name is `WindowsProxyService.<InstanceName>`. Pass multiple names or `--all` to start more than one instance per process. |
 | `Host` | `+` listens on all interfaces (Kestrel wildcard). |
 | `Port` | Port this instance binds to. |
 | `ProxyUrl` | Upstream base URL. All incoming paths and query strings are forwarded. |
