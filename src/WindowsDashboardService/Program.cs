@@ -84,15 +84,19 @@ app.MapGet("/api/services", async (IHttpClientFactory cf) =>
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/services/{name}/test  — call the local proxy, return the response
+// POST /api/services/{name}/test  — call the local proxy, return the response.
+// Optional JSON body: { "path": "/custom/path?foo=bar" }
+// Omit body (or leave path blank) to use the default test path.
 // ---------------------------------------------------------------------------
-app.MapPost("/api/services/{name}/test", async (string name, IHttpClientFactory cf) =>
+app.MapPost("/api/services/{name}/test", async (string name, TestRequest? req, IHttpClientFactory cf) =>
 {
     var inst = instances.FirstOrDefault(i =>
         string.Equals(i.InstanceName, name, StringComparison.OrdinalIgnoreCase));
     if (inst is null) return Results.NotFound();
 
-    var path   = testPaths.GetValueOrDefault(name, "/");
+    var rawPath = req?.Path?.Trim();
+    var path    = string.IsNullOrEmpty(rawPath) ? testPaths.GetValueOrDefault(name, "/") : rawPath;
+    if (!path.StartsWith('/')) path = '/' + path;
     var url    = $"http://localhost:{inst.Port}{path}";
     var client = cf.CreateClient();
     client.Timeout = TimeSpan.FromSeconds(10);
@@ -161,3 +165,5 @@ record InstanceConfig(
     string Host,
     int    Port,
     string ProxyUrl);
+
+record TestRequest(string? Path);
