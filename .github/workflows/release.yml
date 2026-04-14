@@ -24,7 +24,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0   # full history so git describe works in install-services.ps1
 
@@ -51,7 +51,7 @@ jobs:
 
       # ── Toolchain ─────────────────────────────────────────────────────────────
       - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.x'
 
@@ -140,7 +140,7 @@ jobs:
       #
       # A GitHub Release is only created for tag pushes.
       - name: Upload MSI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: msi-${{ steps.ver.outputs.SEMVER }}
           path: installer/${{ steps.msi.outputs.MSI_NAME }}
@@ -148,7 +148,7 @@ jobs:
 
       - name: Create GitHub Release
         if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: "Windows Proxy Services ${{ steps.ver.outputs.SEMVER }}"
           generate_release_notes: true
