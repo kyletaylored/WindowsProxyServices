@@ -113,20 +113,54 @@ jobs:
             'WindowsDashboardService.exe',
             'WindowsTrayApp.exe'
           )
-          $files = Get-ChildItem -Path $publishDir -File |
-                   Where-Object { $_.Name -notin $excludedExes }
+
+          # Enumerate ALL files recursively so subdirectories (e.g. wwwroot) are included.
+          $allFiles = Get-ChildItem -Path $publishDir -File -Recurse |
+                      Where-Object { $_.Name -notin $excludedExes }
+
+          # Separate root-level files from files inside subdirectories.
+          $rootFiles = $allFiles | Where-Object { $_.DirectoryName -eq $publishDir }
+          $subFiles  = $allFiles | Where-Object { $_.DirectoryName -ne $publishDir }
+
+          # Unique subdirectory paths relative to publishDir (e.g. "wwwroot").
+          $subDirs = $subFiles |
+                     ForEach-Object { $_.DirectoryName.Substring($publishDir.Length).TrimStart('\') } |
+                     Sort-Object -Unique
 
           $sb = [System.Text.StringBuilder]::new()
           $sb.AppendLine('<?xml version="1.0" encoding="UTF-8"?>') | Out-Null
           $sb.AppendLine('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">') | Out-Null
           $sb.AppendLine('  <Fragment>') | Out-Null
-          $sb.AppendLine('    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">') | Out-Null
 
-          foreach ($file in $files) {
+          # Declare each subdirectory nested under INSTALLFOLDER.
+          foreach ($dir in $subDirs) {
+            $dirId   = 'Dir_' + ($dir -replace '[^a-zA-Z0-9]', '_')
+            $dirName = Split-Path $dir -Leaf
+            $sb.AppendLine("    <DirectoryRef Id=""INSTALLFOLDER"">") | Out-Null
+            $sb.AppendLine("      <Directory Id=""$dirId"" Name=""$dirName"" />") | Out-Null
+            $sb.AppendLine("    </DirectoryRef>") | Out-Null
+          }
+
+          # Root-level components.
+          $sb.AppendLine('    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">') | Out-Null
+          foreach ($file in $rootFiles) {
             $id   = 'f_' + ($file.Name -replace '[^a-zA-Z0-9]', '_')
             $guid = Get-FileGuid $file.Name
             $src  = $file.FullName
             $sb.AppendLine("      <Component Id=""$id"" Guid=""$guid"">") | Out-Null
+            $sb.AppendLine("        <File Id=""$id"" Source=""$src"" KeyPath=""yes"" />") | Out-Null
+            $sb.AppendLine("      </Component>") | Out-Null
+          }
+
+          # Subdirectory components — Directory attribute overrides the group default.
+          foreach ($file in $subFiles) {
+            $relDir = $file.DirectoryName.Substring($publishDir.Length).TrimStart('\')
+            $dirId  = 'Dir_' + ($relDir -replace '[^a-zA-Z0-9]', '_')
+            $relKey = "$relDir\$($file.Name)"
+            $id     = 'f_' + ($relKey -replace '[^a-zA-Z0-9]', '_')
+            $guid   = Get-FileGuid $relKey
+            $src    = $file.FullName
+            $sb.AppendLine("      <Component Id=""$id"" Guid=""$guid"" Directory=""$dirId"">") | Out-Null
             $sb.AppendLine("        <File Id=""$id"" Source=""$src"" KeyPath=""yes"" />") | Out-Null
             $sb.AppendLine("      </Component>") | Out-Null
           }
@@ -136,7 +170,7 @@ jobs:
           $sb.AppendLine('</Wix>') | Out-Null
 
           [System.IO.File]::WriteAllText($outputFile, $sb.ToString(), [System.Text.Encoding]::UTF8)
-          Write-Host "Generated Files.wxs with $($files.Count) file components."
+          Write-Host "Generated Files.wxs with $($allFiles.Count) file components ($($rootFiles.Count) root, $($subFiles.Count) in subdirs)."
 
       - name: Build MSI
         id: msi

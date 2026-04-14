@@ -6,7 +6,9 @@ using System.Text.Json;
 // ---------------------------------------------------------------------------
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddWindowsService(o => o.ServiceName = "WindowsDashboardService");
+// UseWindowsService (not AddWindowsService) also sets ContentRoot to
+// AppContext.BaseDirectory so UseStaticFiles finds wwwroot next to the exe.
+builder.Host.UseWindowsService(o => o.ServiceName = "WindowsDashboardService");
 builder.Services.AddHttpClient();
 builder.WebHost.UseUrls("http://+:5051");
 
