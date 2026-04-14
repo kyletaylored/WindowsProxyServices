@@ -1,10 +1,16 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Registers each instance defined in services.json as a Windows Service.
+    Registers each proxy instance defined in services.json plus the dashboard
+    service as Windows Services.
+
+.DESCRIPTION
+    Reads services.json to enumerate the proxy service instances and registers
+    each one with sc.exe.  Also registers WindowsDashboardService.
+    WindowsTrayApp is not a Windows service and is not handled here.
 
 .PARAMETER PublishPath
-    Path to the folder containing WindowsProxyService.exe and services.json.
+    Path to the folder containing the published executables and services.json.
     Defaults to C:\Services\WindowsProxyService.
 
 .EXAMPLE
@@ -18,6 +24,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $exePath      = Join-Path $PublishPath "WindowsProxyService.exe"
+$dashExePath  = Join-Path $PublishPath "WindowsDashboardService.exe"
 $servicesJson = Join-Path $PublishPath "services.json"
 
 # Resolve DD_VERSION from the latest git tag, falling back to the short commit hash.
@@ -41,7 +48,9 @@ if (-not $ddVersion) { $ddVersion = "0.0.0-unknown" }
 if (-not (Test-Path $exePath)) {
     Write-Error "Executable not found: $exePath`nRun 'dotnet publish' first and check -PublishPath."
 }
-
+if (-not (Test-Path $dashExePath)) {
+    Write-Error "Executable not found: $dashExePath`nRun 'dotnet publish' first and check -PublishPath."
+}
 if (-not (Test-Path $servicesJson)) {
     Write-Error "services.json not found: $servicesJson"
 }
@@ -76,6 +85,21 @@ foreach ($instance in $instances) {
     Write-Host "  -> Created.  DD_SERVICE=$ddService  DD_VERSION=$ddVersion"
 }
 
+# Register the dashboard service.
+$dashExisting = Get-Service -Name "WindowsDashboardService" -ErrorAction SilentlyContinue
+if ($dashExisting) {
+    Write-Warning "Service 'WindowsDashboardService' already exists -- skipping. Run uninstall-services.ps1 first to reinstall."
+} else {
+    Write-Host "Creating service: WindowsDashboardService"
+    sc.exe create "WindowsDashboardService" binPath= "`"$dashExePath`"" start= auto `
+        DisplayName= "Windows Dashboard Service" | Out-Null
+    sc.exe description "WindowsDashboardService" `
+        "Web dashboard for monitoring and testing the proxy services (http://localhost:5051)" | Out-Null
+    Write-Host "  -> Created."
+}
+
 Write-Host ""
-Write-Host "Done. Start all instances with:"
-Write-Host "  Get-Service WindowsProxyService.* | Start-Service"
+Write-Host "Done. Start all services with:"
+Write-Host "  Get-Service WindowsProxyService.*, WindowsDashboardService | Start-Service"
+Write-Host ""
+Write-Host "Then open the dashboard at: http://localhost:5051"

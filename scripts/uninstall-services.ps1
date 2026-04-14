@@ -1,7 +1,8 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Stops and removes each Windows Service instance defined in services.json.
+    Stops and removes all Windows Service instances: the five proxy services
+    and the dashboard service.
 
 .PARAMETER PublishPath
     Path to the folder containing services.json.
@@ -39,6 +40,19 @@ foreach ($instance in $instances) {
 
     Write-Host "Deleting service: $serviceName"
     sc.exe delete $serviceName | Out-Null
+    Write-Host "  -> Removed."
+}
+
+# Remove the dashboard service.
+$dashSvc = Get-Service -Name "WindowsDashboardService" -ErrorAction SilentlyContinue
+if (-not $dashSvc) {
+    Write-Warning "Service 'WindowsDashboardService' not found -- skipping."
+} else {
+    Write-Host "Stopping service: WindowsDashboardService"
+    Stop-Service -Name "WindowsDashboardService" -Force -ErrorAction SilentlyContinue
+
+    Write-Host "Deleting service: WindowsDashboardService"
+    sc.exe delete "WindowsDashboardService" | Out-Null
     Write-Host "  -> Removed."
 }
 

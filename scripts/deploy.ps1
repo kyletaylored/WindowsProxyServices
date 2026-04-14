@@ -1,23 +1,35 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Full deploy: stop services, publish, register (first run only), compile rules, start.
+    Full deploy: stop services, publish all projects, register (first run only), compile rules, start.
 
 .DESCRIPTION
     Run this from the repo root to go from source to running Windows Services
-    in one step. On the first run it registers each instance with sc.exe.
-    On subsequent runs it just stops, republishes, and restarts.
+    in one step. On the first run it registers each proxy instance plus the
+    dashboard service with sc.exe.  On subsequent runs it just stops,
+    republishes, and restarts.
 
     Also ensures the Datadog rule compiler is present and (re)compiles rules.toml
     into the Datadog managed policy directory on every deploy.
 
+    The tray app (WindowsTrayApp.exe) is published to the same folder but is not
+    registered as a service — launch it from the Start Menu shortcut or directly.
+
 .PARAMETER DeployPath
-    Folder the binary and services.json are published into and run from.
+    Folder all binaries and services.json are published into and run from.
     Defaults to C:\Services\WindowsProxyService.
 
 .PARAMETER ProjectPath
-    Path to the .csproj file, relative to where this script is called from.
+    Path to the proxy service .csproj, relative to the repo root.
     Defaults to src\WindowsProxyService\WindowsProxyService.csproj.
+
+.PARAMETER DashboardProjectPath
+    Path to the dashboard service .csproj, relative to the repo root.
+    Defaults to src\WindowsDashboardService\WindowsDashboardService.csproj.
+
+.PARAMETER TrayAppProjectPath
+    Path to the tray app .csproj, relative to the repo root.
+    Defaults to src\WindowsTrayApp\WindowsTrayApp.csproj.
 
 .PARAMETER RulesToolPath
     Folder where dd-rules-converter.exe is installed.
@@ -35,10 +47,12 @@
     .\scripts\deploy.ps1 -DeployPath "D:\MyServices\WindowsProxyService"
 #>
 param(
-    [string]$DeployPath       = "C:\Services\WindowsProxyService",
-    [string]$ProjectPath      = "src\WindowsProxyService\WindowsProxyService.csproj",
-    [string]$RulesToolPath    = "C:\tools",
-    [string]$RulesToolVersion = "v0.1.1"
+    [string]$DeployPath             = "C:\Services\WindowsProxyService",
+    [string]$ProjectPath            = "src\WindowsProxyService\WindowsProxyService.csproj",
+    [string]$DashboardProjectPath   = "src\WindowsDashboardService\WindowsDashboardService.csproj",
+    [string]$TrayAppProjectPath     = "src\WindowsTrayApp\WindowsTrayApp.csproj",
+    [string]$RulesToolPath          = "C:\tools",
+    [string]$RulesToolVersion       = "v0.1.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -94,29 +108,48 @@ if (Test-Path $jsonPath) {
         }
     }
 } else {
-    Write-Host "    No services.json found yet -- skipping stop step."
+    Write-Host "    No services.json found yet -- skipping proxy stop step."
+}
+
+$dashSvc = Get-Service -Name "WindowsDashboardService" -ErrorAction SilentlyContinue
+if ($dashSvc -and $dashSvc.Status -eq "Running") {
+    Write-Host "    Stopping WindowsDashboardService..."
+    Stop-Service -Name "WindowsDashboardService" -Force
 }
 
 # ---------------------------------------------------------------------------
-# Step 2: Publish (Release, win-x64, self-contained)
+# Step 2: Publish all three projects (Release, win-x64, self-contained)
+# Publishing to the same directory is safe -- all three target net8.0-windows
+# and bring compatible runtime DLLs; later publishes overwrite identical files.
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "==> Publishing to $DeployPath..."
 
-dotnet publish $ProjectPath `
-    --configuration Release `
-    --runtime win-x64 `
-    --self-contained `
-    --output $DeployPath
+$pubProjects = @(
+    @{ Label = "WindowsProxyService";    Path = $ProjectPath },
+    @{ Label = "WindowsDashboardService"; Path = $DashboardProjectPath },
+    @{ Label = "WindowsTrayApp";          Path = $TrayAppProjectPath }
+)
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "dotnet publish failed (exit code $LASTEXITCODE). Aborting."
+foreach ($proj in $pubProjects) {
+    Write-Host "    Publishing $($proj.Label)..."
+    dotnet publish $proj.Path `
+        --configuration Release `
+        --runtime win-x64 `
+        --self-contained `
+        --output $DeployPath
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "dotnet publish failed for $($proj.Label) (exit code $LASTEXITCODE). Aborting."
+    }
 }
 
-Write-Host "    Publish succeeded."
+Write-Host "    All projects published."
 
 # ---------------------------------------------------------------------------
 # Step 3: Register services -- first run only, skipped if already registered.
+# Registers all five proxy instances + WindowsDashboardService.
+# WindowsTrayApp is not a Windows service; it is launched by the user directly.
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "==> Registering services (skipped for any already registered)..."
@@ -139,6 +172,20 @@ foreach ($instance in $instances) {
         sc.exe description $svcName $description | Out-Null
         Write-Host "    -> Registered."
     }
+}
+
+# Register the dashboard service.
+$dashExe      = Join-Path $DeployPath "WindowsDashboardService.exe"
+$dashExisting = Get-Service -Name "WindowsDashboardService" -ErrorAction SilentlyContinue
+if ($dashExisting) {
+    Write-Host "    WindowsDashboardService already registered -- skipping."
+} else {
+    Write-Host "    Registering WindowsDashboardService..."
+    sc.exe create "WindowsDashboardService" binPath= "`"$dashExe`"" start= auto `
+        DisplayName= "Windows Dashboard Service" | Out-Null
+    sc.exe description "WindowsDashboardService" `
+        "Web dashboard for monitoring and testing the proxy services (http://localhost:5051)" | Out-Null
+    Write-Host "    -> Registered."
 }
 
 # ---------------------------------------------------------------------------
@@ -217,7 +264,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "    -> Policy written to $policyOutput"
 
 # ---------------------------------------------------------------------------
-# Step 6: Start all instances
+# Step 7: Start all services
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "==> Starting services..."
@@ -228,8 +275,12 @@ foreach ($instance in $instances) {
     Start-Service -Name $svcName
 }
 
+Write-Host "    Starting WindowsDashboardService..."
+Start-Service -Name "WindowsDashboardService"
+
 Write-Host ""
 Write-Host "==> Deploy complete."
 Write-Host ""
 Write-Host "Service status:"
-Get-Service -Name "WindowsProxyService.*" | Format-Table Name, Status -AutoSize
+Get-Service -Name "WindowsProxyService.*", "WindowsDashboardService" | Format-Table Name, Status -AutoSize
+Write-Host "Dashboard: http://localhost:5051"
