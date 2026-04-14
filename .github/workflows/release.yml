@@ -114,6 +114,7 @@ jobs:
         id: msi
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $semver  = "${{ steps.ver.outputs.SEMVER }}"
           $msiVer  = "${{ steps.ver.outputs.MSI_VERSION }}"
           $msiName = "WindowsProxyServices-$semver.msi"

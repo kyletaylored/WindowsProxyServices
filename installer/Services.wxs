@@ -8,7 +8,7 @@
     install directory + KeyPath filename.  Keeping the exe as KeyPath in the
     same component as the ServiceInstall elements guarantees that every service
     gets the correct binary path automatically, e.g.:
-        "C:\Services\WindowsProxyService\WindowsProxyService.exe" --name OpenMeteo
+        "C:\Services\WindowsProxyService\WindowsProxyService.exe" -name OpenMeteo
 
   DD environment variables (DD_SERVICE, DD_VERSION) are written to each
   service's registry key so the Datadog agent can correlate traces.
