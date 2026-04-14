@@ -1,0 +1,156 @@
+name: Release
+
+# Triggered automatically by a semver tag push:
+#   git tag v1.2.3 && git push --tags
+#
+# Can also be run manually from the Actions tab to produce a test MSI without
+# creating a release.  Leave the version blank to get 0.0.0-dev.<run number>.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version string (e.g. 1.2.3 or 1.2.3-beta1). Leave blank for a dev build.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write   # needed to create the GitHub Release
+
+jobs:
+  build-msi:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so git describe works in install-services.ps1
+
+      # ── Version ──────────────────────────────────────────────────────────────
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $raw    = "${{ inputs.version }}"
+            $semver = if ($raw) { $raw.TrimStart('v') } else { "0.0.0-dev.${{ github.run_number }}" }
+          } else {
+            $semver = "${{ github.ref_name }}".TrimStart('v')   # strip leading 'v' from tag
+          }
+
+          # MSI ProductVersion must be X.Y.Z — strip any pre-release suffix
+          $parts  = ($semver -split '-')[0].Split('.')
+          while ($parts.Count -lt 3) { $parts += '0' }
+          $msiVer = $parts[0..2] -join '.'
+
+          echo "SEMVER=$semver"       >> $env:GITHUB_OUTPUT
+          echo "MSI_VERSION=$msiVer" >> $env:GITHUB_OUTPUT
+          Write-Host "Semver: $semver  |  MSI version: $msiVer"
+
+      # ── Toolchain ─────────────────────────────────────────────────────────────
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install WiX Toolset v4
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 4.0.5
+          wix extension add WixToolset.UI.wixext/4.0.5
+
+      # ── Build ─────────────────────────────────────────────────────────────────
+      - name: Restore & Publish
+        shell: pwsh
+        run: |
+          dotnet restore WindowsProxyServices.sln
+          dotnet publish src/WindowsProxyService/WindowsProxyService.csproj `
+            -c Release -r win-x64 --self-contained `
+            -p:AssemblyVersion=${{ steps.ver.outputs.MSI_VERSION }} `
+            -o "${{ github.workspace }}\publish"
+
+      # ── Package ───────────────────────────────────────────────────────────────
+      #
+      # Services.wxs owns WindowsProxyService.exe (it's the component KeyPath that
+      # lets MSI resolve the service ImagePath automatically).  All remaining files
+      # — DLLs, services.json, runtime assets — are enumerated here and written to
+      # installer\Files.wxs so wix build can include them without hand-maintaining
+      # a long file list.
+      - name: Generate WiX file fragment
+        shell: pwsh
+        run: |
+          $publishDir = "${{ github.workspace }}\publish"
+          $outputFile = "${{ github.workspace }}\installer\Files.wxs"
+
+          # Exclude the exe — it is declared in installer\Services.wxs
+          $files = Get-ChildItem -Path $publishDir -File |
+                   Where-Object { $_.Name -ne 'WindowsProxyService.exe' }
+
+          $sb = [System.Text.StringBuilder]::new()
+          $sb.AppendLine('<?xml version="1.0" encoding="UTF-8"?>') | Out-Null
+          $sb.AppendLine('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">') | Out-Null
+          $sb.AppendLine('  <Fragment>') | Out-Null
+          $sb.AppendLine('    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">') | Out-Null
+
+          foreach ($file in $files) {
+            # Build a legal XML Id from the filename
+            $id  = 'f_' + ($file.Name -replace '[^a-zA-Z0-9]', '_')
+            $src = $file.FullName
+            $sb.AppendLine("      <Component Id=""$id"" Guid=""*"">") | Out-Null
+            $sb.AppendLine("        <File Id=""$id"" Source=""$src"" KeyPath=""yes"" />") | Out-Null
+            $sb.AppendLine("      </Component>") | Out-Null
+          }
+
+          $sb.AppendLine('    </ComponentGroup>') | Out-Null
+          $sb.AppendLine('  </Fragment>') | Out-Null
+          $sb.AppendLine('</Wix>') | Out-Null
+
+          [System.IO.File]::WriteAllText($outputFile, $sb.ToString(), [System.Text.Encoding]::UTF8)
+          Write-Host "Generated Files.wxs with $($files.Count) file components."
+
+      - name: Build MSI
+        id: msi
+        shell: pwsh
+        run: |
+          $semver  = "${{ steps.ver.outputs.SEMVER }}"
+          $msiVer  = "${{ steps.ver.outputs.MSI_VERSION }}"
+          $msiName = "WindowsProxyServices-$semver.msi"
+          $pubDir  = "${{ github.workspace }}\publish"
+
+          wix build `
+            installer\Product.wxs `
+            installer\Services.wxs `
+            installer\Files.wxs `
+            -arch x64 `
+            -d "Version=$msiVer" `
+            -d "Manufacturer=Kyle Taylor" `
+            -d "PublishDir=$pubDir" `
+            -ext WixToolset.UI.wixext `
+            -o "installer\$msiName"
+
+          echo "MSI_NAME=$msiName" >> $env:GITHUB_OUTPUT
+          Write-Host "MSI built: installer\$msiName"
+
+      # ── Artifact + Release ────────────────────────────────────────────────────
+      #
+      # The MSI is always uploaded as a workflow artifact so it can be downloaded
+      # from the Actions tab — useful for test/dev builds triggered via workflow_dispatch.
+      #
+      # A GitHub Release is only created for tag pushes.
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: msi-${{ steps.ver.outputs.SEMVER }}
+          path: installer/${{ steps.msi.outputs.MSI_NAME }}
+          retention-days: 14
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Windows Proxy Services ${{ steps.ver.outputs.SEMVER }}"
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: installer/${{ steps.msi.outputs.MSI_NAME }}

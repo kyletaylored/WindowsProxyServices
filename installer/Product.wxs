@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX v4 product definition for Windows Proxy Services.
+
+  Default install path : C:\Services\WindowsProxyService
+                         (matches the path used in deploy.ps1 / install-services.ps1)
+
+  GUI install  : double-click the .msi — an install-directory dialog lets you change the path.
+  Silent install (PowerShell / cmd):
+      msiexec /i WindowsProxyServices-1.2.3.msi /quiet
+      msiexec /i WindowsProxyServices-1.2.3.msi /quiet INSTALLFOLDER="D:\Custom\Path\"
+  Uninstall:
+      msiexec /x WindowsProxyServices-1.2.3.msi /quiet
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package
+    Name="Windows Proxy Services"
+    Manufacturer="$(var.Manufacturer)"
+    Version="$(var.Version)"
+    UpgradeCode="F1E2D3C4-B5A6-7890-DEAD-BEEF00000001"
+    Scope="perMachine">
+
+    <SummaryInformation Description="YARP-based reverse proxy Windows services for Datadog APM tracing." />
+
+    <!-- Remove the old version automatically when upgrading; block downgrades. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Windows Proxy Services is already installed." />
+
+    <!-- Embed the cabinet into the MSI so it is a single self-contained file. -->
+    <MediaTemplate EmbedCab="yes" />
+
+    <!--
+      Directory layout:
+        TARGETDIR (C:\)
+          └── Services\
+                └── WindowsProxyService\   ← INSTALLFOLDER
+
+      TARGETDIR is set by Windows Installer to the root of the selected drive,
+      so the default path resolves to C:\Services\WindowsProxyService.
+      The WixUI_InstallDir dialog lets the user override INSTALLFOLDER to any path.
+    -->
+    <StandardDirectory Id="TARGETDIR">
+      <Directory Id="ServicesFolder" Name="Services">
+        <Directory Id="INSTALLFOLDER" Name="WindowsProxyService" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Standard install-directory selection UI. -->
+    <ui:WixUI Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <Feature Id="ProductFeature" Title="Windows Proxy Services" Level="1">
+      <!-- All runtime files (DLLs, services.json, …) — generated at build time -->
+      <ComponentGroupRef Id="ProductComponents" />
+      <!-- WindowsProxyService.exe + all five Windows service registrations -->
+      <ComponentGroupRef Id="ServiceComponents" />
+    </Feature>
+
+  </Package>
+</Wix>

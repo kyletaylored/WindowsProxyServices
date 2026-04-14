@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore WindowsProxyServices.sln
+
+      - name: Build
+        run: dotnet build WindowsProxyServices.sln --no-restore -c Release
+
+      - name: Publish (win-x64 self-contained)
+        shell: pwsh
+        run: |
+          dotnet publish src/WindowsProxyService/WindowsProxyService.csproj `
+            -c Release -r win-x64 --self-contained `
+            -o "${{ github.workspace }}\publish"
+
+      - name: Smoke test — verify published output
+        shell: pwsh
+        run: |
+          $exe  = "${{ github.workspace }}\publish\WindowsProxyService.exe"
+          $json = "${{ github.workspace }}\publish\services.json"
+
+          if (-not (Test-Path $exe))  { throw "WindowsProxyService.exe not found in publish output." }
+          if (-not (Test-Path $json)) { throw "services.json not found in publish output." }
+
+          $fileCount = (Get-ChildItem "${{ github.workspace }}\publish" -File).Count
+          Write-Host "Publish output OK — $fileCount files."
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-app-${{ github.run_number }}
+          path: publish/
+          retention-days: 3

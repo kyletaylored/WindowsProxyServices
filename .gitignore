@@ -20,8 +20,13 @@ packages/
 ## Rider
 .idea/
 
-## VS Code
+## IDE
 .vscode/
+.claude/
+
+## Installer (generated at build time by release.yml)
+installer/Files.wxs
+installer/*.msi
 
 ## OS
 .DS_Store

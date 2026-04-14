@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  All five proxy Windows services are defined in a single MSI component that
+  owns WindowsProxyService.exe as its KeyPath.
+
+  Why one component for all services?
+    Windows Installer derives each service's ImagePath from the component's
+    install directory + KeyPath filename.  Keeping the exe as KeyPath in the
+    same component as the ServiceInstall elements guarantees that every service
+    gets the correct binary path automatically, e.g.:
+        "C:\Services\WindowsProxyService\WindowsProxyService.exe" --name OpenMeteo
+
+  DD environment variables (DD_SERVICE, DD_VERSION) are written to each
+  service's registry key so the Datadog agent can correlate traces.
+  The [~] separator is WiX syntax for a REG_MULTI_SZ null delimiter.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+
+    <ComponentGroup Id="ServiceComponents" Directory="INSTALLFOLDER">
+
+      <Component Id="CompServices" Guid="C0FFEE00-1234-5678-ABCD-EF0123456789">
+
+        <!-- Executable — must be KeyPath so MSI resolves the service ImagePath correctly. -->
+        <File Id="FileExe"
+              Source="$(var.PublishDir)\WindowsProxyService.exe"
+              KeyPath="yes" />
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             OpenMeteo  |  port 5052  |  https://api.open-meteo.com
+        ════════════════════════════════════════════════════════════════════ -->
+        <ServiceInstall
+          Id="SvcOpenMeteoInstall"
+          Name="WindowsProxyService.OpenMeteo"
+          DisplayName="Windows Proxy Service - OpenMeteo"
+          Description="Proxies requests to the Open-Meteo weather forecast API (no auth required)"
+          Type="ownProcess"
+          Start="auto"
+          ErrorControl="normal"
+          Arguments="--name OpenMeteo" />
+        <ServiceControl
+          Id="SvcOpenMeteoCtrl"
+          Name="WindowsProxyService.OpenMeteo"
+          Start="install"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
+        <RegistryKey Root="HKLM"
+          Key="SYSTEM\CurrentControlSet\Services\WindowsProxyService.OpenMeteo">
+          <RegistryValue Name="Environment" Type="multiString"
+            Value="DD_SERVICE=windowsproxyservice-openmeteo[~]DD_VERSION=$(var.Version)" />
+        </RegistryKey>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             CatFacts  |  port 5053  |  https://catfact.ninja
+        ════════════════════════════════════════════════════════════════════ -->
+        <ServiceInstall
+          Id="SvcCatFactsInstall"
+          Name="WindowsProxyService.CatFacts"
+          DisplayName="Windows Proxy Service - CatFacts"
+          Description="Proxies requests to the Cat Facts API (no auth required)"
+          Type="ownProcess"
+          Start="auto"
+          ErrorControl="normal"
+          Arguments="--name CatFacts" />
+        <ServiceControl
+          Id="SvcCatFactsCtrl"
+          Name="WindowsProxyService.CatFacts"
+          Start="install"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
+        <RegistryKey Root="HKLM"
+          Key="SYSTEM\CurrentControlSet\Services\WindowsProxyService.CatFacts">
+          <RegistryValue Name="Environment" Type="multiString"
+            Value="DD_SERVICE=windowsproxyservice-catfacts[~]DD_VERSION=$(var.Version)" />
+        </RegistryKey>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             JsonPlaceholder  |  port 5054  |  https://jsonplaceholder.typicode.com
+        ════════════════════════════════════════════════════════════════════ -->
+        <ServiceInstall
+          Id="SvcJsonPlaceholderInstall"
+          Name="WindowsProxyService.JsonPlaceholder"
+          DisplayName="Windows Proxy Service - JsonPlaceholder"
+          Description="Proxies requests to JSONPlaceholder — fake REST API for testing (no auth required)"
+          Type="ownProcess"
+          Start="auto"
+          ErrorControl="normal"
+          Arguments="--name JsonPlaceholder" />
+        <ServiceControl
+          Id="SvcJsonPlaceholderCtrl"
+          Name="WindowsProxyService.JsonPlaceholder"
+          Start="install"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
+        <RegistryKey Root="HKLM"
+          Key="SYSTEM\CurrentControlSet\Services\WindowsProxyService.JsonPlaceholder">
+          <RegistryValue Name="Environment" Type="multiString"
+            Value="DD_SERVICE=windowsproxyservice-jsonplaceholder[~]DD_VERSION=$(var.Version)" />
+        </RegistryKey>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             DogCeo  |  port 5055  |  https://dog.ceo
+        ════════════════════════════════════════════════════════════════════ -->
+        <ServiceInstall
+          Id="SvcDogCeoInstall"
+          Name="WindowsProxyService.DogCeo"
+          DisplayName="Windows Proxy Service - DogCeo"
+          Description="Proxies requests to the Dog CEO random dog image API (no auth required)"
+          Type="ownProcess"
+          Start="auto"
+          ErrorControl="normal"
+          Arguments="--name DogCeo" />
+        <ServiceControl
+          Id="SvcDogCeoCtrl"
+          Name="WindowsProxyService.DogCeo"
+          Start="install"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
+        <RegistryKey Root="HKLM"
+          Key="SYSTEM\CurrentControlSet\Services\WindowsProxyService.DogCeo">
+          <RegistryValue Name="Environment" Type="multiString"
+            Value="DD_SERVICE=windowsproxyservice-dogceo[~]DD_VERSION=$(var.Version)" />
+        </RegistryKey>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             ChuckNorris  |  port 5056  |  https://api.chucknorris.io
+        ════════════════════════════════════════════════════════════════════ -->
+        <ServiceInstall
+          Id="SvcChuckNorrisInstall"
+          Name="WindowsProxyService.ChuckNorris"
+          DisplayName="Windows Proxy Service - ChuckNorris"
+          Description="Proxies requests to the Chuck Norris jokes API (no auth required)"
+          Type="ownProcess"
+          Start="auto"
+          ErrorControl="normal"
+          Arguments="--name ChuckNorris" />
+        <ServiceControl
+          Id="SvcChuckNorrisCtrl"
+          Name="WindowsProxyService.ChuckNorris"
+          Start="install"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
+        <RegistryKey Root="HKLM"
+          Key="SYSTEM\CurrentControlSet\Services\WindowsProxyService.ChuckNorris">
+          <RegistryValue Name="Environment" Type="multiString"
+            Value="DD_SERVICE=windowsproxyservice-chucknorris[~]DD_VERSION=$(var.Version)" />
+        </RegistryKey>
+
+      </Component>
+
+    </ComponentGroup>
+
+  </Fragment>
+</Wix>
