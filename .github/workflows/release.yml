@@ -66,10 +66,21 @@ jobs:
         shell: pwsh
         run: |
           dotnet restore WindowsProxyServices.sln
-          dotnet publish src/WindowsProxyService/WindowsProxyService.csproj `
-            -c Release -r win-x64 --self-contained `
-            -p:AssemblyVersion=${{ steps.ver.outputs.MSI_VERSION }} `
-            -o "${{ github.workspace }}\publish"
+
+          $pubArgs = @(
+            '-c', 'Release',
+            '-r', 'win-x64',
+            '--self-contained',
+            "-p:AssemblyVersion=${{ steps.ver.outputs.MSI_VERSION }}",
+            '-o', "${{ github.workspace }}\publish"
+          )
+
+          # Publish all three projects to the same directory.
+          # They all target net8.0-windows so the runtime DLLs are compatible;
+          # identical files are simply overwritten by the later publish.
+          dotnet publish src/WindowsProxyService/WindowsProxyService.csproj       @pubArgs
+          dotnet publish src/WindowsDashboardService/WindowsDashboardService.csproj @pubArgs
+          dotnet publish src/WindowsTrayApp/WindowsTrayApp.csproj                 @pubArgs
 
       # ── Package ───────────────────────────────────────────────────────────────
       #
@@ -95,9 +106,15 @@ jobs:
             return [System.Guid]::new($hash).ToString('D').ToUpper()
           }
 
-          # Exclude the exe — it is declared in installer\Services.wxs
+          # Exclude all service/app exes — each is declared in installer\Services.wxs
+          # with its own component so MSI can wire up service registrations and shortcuts.
+          $excludedExes = @(
+            'WindowsProxyService.exe',
+            'WindowsDashboardService.exe',
+            'WindowsTrayApp.exe'
+          )
           $files = Get-ChildItem -Path $publishDir -File |
-                   Where-Object { $_.Name -ne 'WindowsProxyService.exe' }
+                   Where-Object { $_.Name -notin $excludedExes }
 
           $sb = [System.Text.StringBuilder]::new()
           $sb.AppendLine('<?xml version="1.0" encoding="UTF-8"?>') | Out-Null

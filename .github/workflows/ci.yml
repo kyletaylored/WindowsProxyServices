@@ -29,19 +29,24 @@ jobs:
       - name: Publish (win-x64 self-contained)
         shell: pwsh
         run: |
-          dotnet publish src/WindowsProxyService/WindowsProxyService.csproj `
-            -c Release -r win-x64 --self-contained `
-            -o "${{ github.workspace }}\publish"
+          $pubArgs = @('-c','Release','-r','win-x64','--self-contained','-o',"${{ github.workspace }}\publish")
+          dotnet publish src/WindowsProxyService/WindowsProxyService.csproj         @pubArgs
+          dotnet publish src/WindowsDashboardService/WindowsDashboardService.csproj @pubArgs
+          dotnet publish src/WindowsTrayApp/WindowsTrayApp.csproj                   @pubArgs
 
       - name: Smoke test — verify published output
         shell: pwsh
         run: |
-          $exe  = "${{ github.workspace }}\publish\WindowsProxyService.exe"
-          $json = "${{ github.workspace }}\publish\services.json"
-
-          if (-not (Test-Path $exe))  { throw "WindowsProxyService.exe not found in publish output." }
-          if (-not (Test-Path $json)) { throw "services.json not found in publish output." }
-
+          $required = @(
+            'WindowsProxyService.exe',
+            'WindowsDashboardService.exe',
+            'WindowsTrayApp.exe',
+            'services.json'
+          )
+          foreach ($f in $required) {
+            $path = "${{ github.workspace }}\publish\$f"
+            if (-not (Test-Path $path)) { throw "$f not found in publish output." }
+          }
           $fileCount = (Get-ChildItem "${{ github.workspace }}\publish" -File).Count
           Write-Host "Publish output OK — $fileCount files."
 

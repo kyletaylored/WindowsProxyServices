@@ -45,10 +45,14 @@
         <Directory Id="INSTALLFOLDER" Name="WindowsProxyService" />
       </Directory>
     </StandardDirectory>
+    <!-- Required to place the tray app shortcut in the Start Menu -->
+    <StandardDirectory Id="ProgramMenuFolder" />
 
     <!-- Standard install-directory selection UI. -->
     <ui:WixUI Id="WixUI_InstallDir" />
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <!-- Replace the default lorem-ipsum placeholder with our own license/disclaimer. -->
+    <WixVariable Id="WixUILicenseRtf" Value="installer\License.rtf" />
 
     <Feature Id="ProductFeature" Title="Windows Proxy Services" Level="1">
       <!-- All runtime files (DLLs, services.json, …) — generated at build time -->

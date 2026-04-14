@@ -153,6 +153,48 @@
 
       </Component>
 
+      <!-- ═══════════════════════════════════════════════════════════════════
+           Dashboard Service  |  port 5051  |  http://localhost:5051
+           Serves the Bootstrap 5 web dashboard + REST API for
+           status checking and service start/stop control.
+      ════════════════════════════════════════════════════════════════════ -->
+      <Component Id="CompDashboard" Guid="D4580001-0000-0000-0000-000000000001">
+        <File Id="FileDashExe"
+              Source="$(var.PublishDir)\WindowsDashboardService.exe"
+              KeyPath="yes" />
+        <ServiceInstall
+          Id="SvcDashInstall"
+          Name="WindowsDashboardService"
+          DisplayName="Windows Dashboard Service"
+          Description="Web dashboard for monitoring and testing the proxy services (http://localhost:5051)"
+          Type="ownProcess"
+          Start="auto"
+          ErrorControl="normal" />
+        <ServiceControl
+          Id="SvcDashCtrl"
+          Name="WindowsDashboardService"
+          Start="install"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
+      </Component>
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           Tray Application  (WinForms exe, not a Windows service)
+           A Start Menu shortcut is created so users can launch it manually.
+      ════════════════════════════════════════════════════════════════════ -->
+      <Component Id="CompTrayApp" Guid="D4580001-0000-0000-0000-000000000002">
+        <File Id="FileTrayExe"
+              Source="$(var.PublishDir)\WindowsTrayApp.exe"
+              KeyPath="yes" />
+        <Shortcut
+          Id="ShortcutTray"
+          Directory="ProgramMenuFolder"
+          Name="Windows Proxy Services Tray"
+          WorkingDirectory="INSTALLFOLDER"
+          Description="System tray manager — open the dashboard, start/stop services" />
+      </Component>
+
     </ComponentGroup>
 
   </Fragment>

@@ -1,0 +1,26 @@
+{\rtf1\ansi\ansicpg1252\deff0
+{\fonttbl{\f0\fswiss\fcharset0 Arial;}{\f1\fmodern\fcharset0 Courier New;}}
+\widowctrl\wpaper12240\wpaperh15840\margl1800\margr1800\margt1440\margb1440
+\f0\fs18
+
+{\b\fs22 Windows Proxy Services}\par
+{\fs16 Copyright \u169? 2026 Kyle Taylor}\par
+{\fs16\cf1 https://github.com/kyletaylored/WindowsProxyServices}\par
+\par
+This software is provided free of charge for any purpose, including commercial use, modification, and redistribution. No license fees, attribution requirements, or usage restrictions apply.\par
+\par
+{\b THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.}\par
+\par
+{\b What this installer does:}\par
+\par
+This installer deploys {\b WindowsProxyService.exe} and registers the following Windows Services, which act as lightweight YARP reverse proxies for testing application tracing with Datadog:\par
+\par
+{\f1\fs16
+  WindowsProxyService.OpenMeteo      \u8594? https://api.open-meteo.com       (port 5052)\par
+  WindowsProxyService.CatFacts       \u8594? https://catfact.ninja             (port 5053)\par
+  WindowsProxyService.JsonPlaceholder\u8594? https://jsonplaceholder.typicode.com (port 5054)\par
+  WindowsProxyService.DogCeo         \u8594? https://dog.ceo                   (port 5055)\par
+  WindowsProxyService.ChuckNorris    \u8594? https://api.chucknorris.io        (port 5056)\par
+}\par
+All services are started automatically and configured to restart with Windows. They can be removed cleanly by uninstalling this package.\par
+}
