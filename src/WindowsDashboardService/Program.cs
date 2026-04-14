@@ -36,15 +36,37 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 // ---------------------------------------------------------------------------
-// GET /api/services  — list all proxy services with Windows service status
+// GET /api/services  — list all proxy services with Windows service status.
+// When the service is not registered in SCM (e.g. running directly in dev),
+// falls back to an HTTP probe on the port so the dashboard still works.
 // ---------------------------------------------------------------------------
-app.MapGet("/api/services", () =>
-    instances.Select(inst =>
+app.MapGet("/api/services", async (IHttpClientFactory cf) =>
+{
+    var probe  = cf.CreateClient();
+    probe.Timeout = TimeSpan.FromSeconds(2);
+
+    var tasks = instances.Select(async inst =>
     {
         var svcName = $"WindowsProxyService.{inst.InstanceName}";
         string status;
-        try   { using var sc = new ServiceController(svcName); status = sc.Status.ToString(); }
-        catch { status = "NotFound"; }
+        try
+        {
+            using var sc = new ServiceController(svcName);
+            status = sc.Status.ToString();
+        }
+        catch
+        {
+            // Not registered as a Windows service (dev mode) — probe the port instead.
+            try
+            {
+                await probe.GetAsync($"http://localhost:{inst.Port}/");
+                status = "Running";
+            }
+            catch
+            {
+                status = "Stopped";
+            }
+        }
 
         return new
         {
@@ -56,7 +78,10 @@ app.MapGet("/api/services", () =>
             Status      = status,
             TestPath    = testPaths.GetValueOrDefault(inst.InstanceName, "/"),
         };
-    }));
+    });
+
+    return await Task.WhenAll(tasks);
+});
 
 // ---------------------------------------------------------------------------
 // POST /api/services/{name}/test  — call the local proxy, return the response
