@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Hosting;
 using Yarp.ReverseProxy.Configuration;
 
 namespace WindowsProxyService;
@@ -48,7 +47,8 @@ internal static class ProxyHost
         builder.Services.AddSingleton(config);
 
         var app    = builder.Build();
-        var logger = app.Services.GetRequiredService<ILogger<ProxyHost>>();
+        var logger = app.Services.GetRequiredService<ILoggerFactory>()
+                       .CreateLogger($"WindowsProxyService.{config.InstanceName}");
 
         app.Use(async (context, next) =>
         {
