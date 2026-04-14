@@ -30,6 +30,10 @@
     <!-- Embed the cabinet into the MSI so it is a single self-contained file. -->
     <MediaTemplate EmbedCab="yes" />
 
+    <!-- App icon shown in Add/Remove Programs -->
+    <Icon Id="AppIcon.ico" SourceFile="installer\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+
     <!--
       Directory layout:
         TARGETDIR (C:\)

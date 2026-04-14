@@ -192,6 +192,7 @@
           Directory="ProgramMenuFolder"
           Name="Windows Proxy Services Tray"
           WorkingDirectory="INSTALLFOLDER"
+          Icon="AppIcon.ico"
           Description="System tray manager — open the dashboard, start/stop services" />
       </Component>
 

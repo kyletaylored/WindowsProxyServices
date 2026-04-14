@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Drawing.Drawing2D;
 using System.ServiceProcess;
 using System.Text.Json;
 
@@ -22,7 +21,8 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         _tray = new NotifyIcon
         {
-            Icon             = CreateIcon(),
+            Icon             = Icon.ExtractAssociatedIcon(Application.ExecutablePath)
+                               ?? SystemIcons.Application,
             Text             = "Windows Proxy Services",
             ContextMenuStrip = _menu,
             Visible          = true,
@@ -147,27 +147,6 @@ public sealed class TrayApplicationContext : ApplicationContext
             // Fall back to the known static list so the tray works even when run standalone
             return ["OpenMeteo", "CatFacts", "JsonPlaceholder", "DogCeo", "ChuckNorris"];
         }
-    }
-
-    private static Icon CreateIcon()
-    {
-        const int S = 16;
-        using var bmp = new Bitmap(S, S);
-        using (var g = Graphics.FromImage(bmp))
-        {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            // Blue filled circle
-            g.FillEllipse(new SolidBrush(Color.FromArgb(59, 130, 246)), 0, 0, S - 1, S - 1);
-            // "WP" label centred
-            using var font = new Font("Segoe UI", 5.5f, FontStyle.Bold);
-            var sf = new StringFormat
-            {
-                Alignment     = StringAlignment.Center,
-                LineAlignment = StringAlignment.Center,
-            };
-            g.DrawString("WP", font, Brushes.White, new RectangleF(0, 0, S, S), sf);
-        }
-        return Icon.FromHandle(bmp.GetHicon());
     }
 
     protected override void Dispose(bool disposing)
