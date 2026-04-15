@@ -1,0 +1,11 @@
+{
+  "applicationId": "",
+  "clientToken": "",
+  "site": "datadoghq.com",
+  "service": "windows-proxy-services",
+  "env": "",
+  "version": "",
+  "sessionSampleRate": 100,
+  "sessionReplaySampleRate": 20,
+  "allowedTracingUrls": ["http://localhost"]
+}

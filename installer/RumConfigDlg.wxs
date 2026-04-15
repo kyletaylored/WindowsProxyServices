@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Optional Datadog RUM configuration dialog.
+  Inserted between InstallDirDlg and VerifyReadyDlg in the WixUI_InstallDir sequence.
+
+  Values collected here are written to:
+    HKLM\SOFTWARE\WindowsProxyServices\RUM
+  by the RegistryKey in Services.wxs.
+
+  On first startup, WindowsDashboardService reads those registry values and
+  regenerates wwwroot/rum-config.json so the browser dashboard picks them up.
+
+  All fields are optional — leave blank to disable RUM.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <UI>
+
+      <!-- ── Dialog definition ──────────────────────────────────────────── -->
+      <Dialog Id="RumConfigDlg" Width="370" Height="270" Title="[ProductName] Setup">
+
+        <!-- Banner (same style as built-in WiX dialogs) -->
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="yes" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine"   Type="Line"   X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="340" Height="15"
+                 Transparent="yes" NoPrefix="yes">
+          <Text>{\WixUI_Font_Title}Datadog RUM Configuration</Text>
+        </Control>
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="330" Height="15"
+                 Transparent="yes" NoPrefix="yes">
+          <Text>Configure browser monitoring for the dashboard (optional). Leave blank to disable.</Text>
+        </Control>
+
+        <!-- Application ID -->
+        <Control Id="AppIdLabel" Type="Text" X="20" Y="54" Width="330" Height="10" NoPrefix="yes">
+          <Text>Application ID:</Text>
+        </Control>
+        <Control Id="AppIdEdit" Type="Edit" X="20" Y="66" Width="330" Height="18"
+                 Property="DD_RUM_APP_ID" Text="{80}" TabSkip="no" />
+
+        <!-- Client Token -->
+        <Control Id="ClientTokenLabel" Type="Text" X="20" Y="90" Width="330" Height="10" NoPrefix="yes">
+          <Text>Client Token:</Text>
+        </Control>
+        <Control Id="ClientTokenEdit" Type="Edit" X="20" Y="102" Width="330" Height="18"
+                 Property="DD_RUM_CLIENT_TOKEN" Text="{80}" TabSkip="no" />
+
+        <!-- Site (dropdown) -->
+        <Control Id="SiteLabel" Type="Text" X="20" Y="126" Width="80" Height="10" NoPrefix="yes">
+          <Text>Site:</Text>
+        </Control>
+        <Control Id="SiteCombo" Type="ComboBox" X="20" Y="138" Width="210" Height="60"
+                 Property="DD_RUM_SITE" ComboList="yes" TabSkip="no" />
+
+        <!-- Environment -->
+        <Control Id="EnvLabel" Type="Text" X="20" Y="164" Width="330" Height="10" NoPrefix="yes">
+          <Text>Environment (e.g. prod, staging, dev):</Text>
+        </Control>
+        <Control Id="EnvEdit" Type="Edit" X="20" Y="176" Width="150" Height="18"
+                 Property="DD_RUM_ENV" Text="{30}" TabSkip="no" />
+
+        <!-- Bottom line + navigation buttons -->
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="[WixUI_Btn_Back]">
+          <Publish Event="NewDialog" Value="InstallDirDlg">1</Publish>
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="[WixUI_Btn_Next]">
+          <Publish Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="[WixUI_Btn_Cancel]">
+          <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+        </Control>
+      </Dialog>
+
+      <!-- ComboBox items for the site selector -->
+      <ComboBox Property="DD_RUM_SITE">
+        <ListItem Order="1" Text="datadoghq.com (US1)"     Value="datadoghq.com"     />
+        <ListItem Order="2" Text="us3.datadoghq.com (US3)" Value="us3.datadoghq.com" />
+        <ListItem Order="3" Text="us5.datadoghq.com (US5)" Value="us5.datadoghq.com" />
+        <ListItem Order="4" Text="datadoghq.eu (EU1)"      Value="datadoghq.eu"      />
+        <ListItem Order="5" Text="ap1.datadoghq.com (AP1)" Value="ap1.datadoghq.com" />
+        <ListItem Order="6" Text="ddog-gov.com (US1-FED)"  Value="ddog-gov.com"      />
+      </ComboBox>
+
+      <!--
+        Wire this dialog into the WixUI_InstallDir sequence.
+        Order="20" fires after the built-in transition (Order≈1), overwriting
+        the queued destination — MSI uses the last-queued NewDialog value.
+      -->
+      <Publish Dialog="InstallDirDlg"  Control="Next" Event="NewDialog" Value="RumConfigDlg" Order="20" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="RumConfigDlg" Order="20" />
+
+    </UI>
+  </Fragment>
+</Wix>

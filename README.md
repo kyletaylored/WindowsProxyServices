@@ -214,7 +214,8 @@ Reads `services.json`, stops and deletes each proxy service instance, then stops
 The **Windows Dashboard Service** runs at [http://localhost:5051](http://localhost:5051) and provides:
 
 - **Live status cards** for each proxy service, auto-refreshing every 5 seconds
-- **Test button** — fires a GET request through the local proxy and shows the formatted JSON response inline
+- **Editable path input** per card — pre-filled with a default test path; press Enter or click Send to fire a GET request through the proxy and see the formatted JSON response inline
+- **Custom Request card** — enter any full URL, choose GET or POST (with optional JSON body), and fire the request directly through the dashboard service
 - **Start / Stop buttons** — controls each Windows service directly (the dashboard runs as LocalSystem so no elevation prompt is needed)
 
 The dashboard is itself a Windows service (`WindowsDashboardService`) so it starts automatically with Windows after an MSI install.
@@ -224,9 +225,10 @@ The dashboard is itself a Windows service (`WindowsDashboardService`) so it star
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/services` | List all services with status, port, upstream URL |
-| `POST` | `/api/services/{name}/test` | Fire a test GET request through the proxy; returns status code + body |
+| `POST` | `/api/services/{name}/test` | Fire a GET request through the named proxy; optional body `{"path":"/custom"}` |
 | `POST` | `/api/services/{name}/start` | Start the named Windows service |
 | `POST` | `/api/services/{name}/stop` | Stop the named Windows service |
+| `POST` | `/api/custom-request` | Fire a GET or POST to any URL; body: `{"url":"…","method":"GET\|POST","body":"…"}` |
 
 Example:
 
@@ -450,6 +452,74 @@ Invoke-RestMethod "http://localhost:5056/jokes/categories"
 
 ---
 
+## Datadog RUM
+
+The dashboard can optionally load the Datadog Browser SDK to send Real User Monitoring data. RUM is **disabled by default** — the page only initialises the SDK when `applicationId` is non-empty in `wwwroot/rum-config.json`.
+
+### Configuration paths
+
+**1 — Edit `rum-config.json` directly (dev / post-install)**
+
+Edit `C:\Services\WindowsProxyService\wwwroot\rum-config.json` and fill in the required fields. The dashboard picks up the new values on its next startup (restart `WindowsDashboardService`).
+
+```json
+{
+  "applicationId":           "aea2638b-...",
+  "clientToken":             "pub35af...",
+  "site":                    "us3.datadoghq.com",
+  "service":                 "windows-proxy-services",
+  "env":                     "prod",
+  "version":                 "1.2.3",
+  "sessionSampleRate":       100,
+  "sessionReplaySampleRate": 20,
+  "allowedTracingUrls":      ["http://localhost"]
+}
+```
+
+**2 — MSI installer dialog (GUI install)**
+
+A dedicated dialog page is shown between the install directory and the ready-to-install screen. Enter App ID, Client Token, select your site from the dropdown (all six Datadog regions), and set an environment name. Leave all fields blank to keep RUM disabled.
+
+Values are written to `HKLM\SOFTWARE\WindowsProxyServices\RUM`. On first start, `WindowsDashboardService` reads the registry and regenerates `rum-config.json` automatically.
+
+**3 — Silent / automated MSI install**
+
+Pass the values on the `msiexec` command line:
+
+```powershell
+msiexec /i WindowsProxyServices.msi /quiet `
+  DD_RUM_APP_ID="aea2638b-..." `
+  DD_RUM_CLIENT_TOKEN="pub35af..." `
+  DD_RUM_SITE="us3.datadoghq.com" `
+  DD_RUM_ENV="prod"
+```
+
+**4 — GitHub Actions / forking (build-time injection)**
+
+Set the following in your repo/org settings and the release workflow writes `rum-config.json` before `dotnet publish`, baking it into the MSI:
+
+| Name | Type | Description |
+|------|------|-------------|
+| `DD_RUM_APP_ID` | Secret | RUM application ID |
+| `DD_RUM_CLIENT_TOKEN` | Secret | RUM client token |
+| `DD_RUM_SITE` | Variable | Datadog site (e.g. `us3.datadoghq.com`) |
+| `DD_RUM_ENV` | Variable | Environment name (e.g. `prod`) |
+
+If `DD_RUM_APP_ID` is not set the step is skipped and the MSI ships with RUM disabled.
+
+### Supported sites
+
+| Dropdown label | `site` value |
+|---|---|
+| US1 | `datadoghq.com` |
+| US3 | `us3.datadoghq.com` |
+| US5 | `us5.datadoghq.com` |
+| EU1 | `datadoghq.eu` |
+| AP1 | `ap1.datadoghq.com` |
+| US1-FED | `ddog-gov.com` |
+
+---
+
 ## CI / Releases
 
 The release workflow (`.github/workflows/release.yml`) runs automatically on a semver tag push and can also be triggered manually from the Actions tab to produce a test MSI without creating a release.
@@ -463,9 +533,11 @@ version  →  build  →  smoke-test  →  release (tag push only)
 | Job | Runner | What it does |
 |-----|--------|--------------|
 | `version` | ubuntu | Resolves semver and MSI version strings; exports them as job outputs |
-| `build` | windows | `dotnet publish` all three projects, generates `Files.wxs`, builds the MSI, uploads it as a workflow artifact |
-| `smoke-test` | windows | Installs the MSI silently, polls all six services until `Running`, probes each HTTP endpoint, then uninstalls and verifies cleanup. Uploads installer logs as artifacts on failure. |
+| `build` | windows | Optionally injects RUM config from secrets, `dotnet publish` all three projects, generates `Files.wxs`, builds the MSI, uploads it as a workflow artifact |
+| `smoke-test` | windows | Installs the MSI silently, polls all six services until `Running`, probes each HTTP endpoint, runs a headless Playwright browser test against the dashboard, then uninstalls. Uploads installer logs on failure. |
 | `release` | ubuntu | Downloads the artifact and publishes a GitHub Release with auto-generated release notes |
+
+The Playwright browser test navigates to `http://localhost:5051`, asserts service cards are visible, validates `rum-config.json` is valid JSON, and — when `DD_RUM_APP_ID` is set — asserts `window.DD_RUM` was initialised. The RUM assertion is silently skipped when credentials are not configured.
 
 **Create a release:**
 

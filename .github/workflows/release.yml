@@ -83,6 +83,37 @@ jobs:
           dotnet tool install --global wix --version 4.0.5
           wix extension add WixToolset.UI.wixext/4.0.5
 
+      - name: Inject RUM config
+        # Optional — populate rum-config.json before publish so RUM is active
+        # in the shipped dashboard without requiring post-install configuration.
+        # Set secrets DD_RUM_APP_ID and DD_RUM_CLIENT_TOKEN plus vars DD_RUM_SITE
+        # and DD_RUM_ENV in repo/org settings.  Skip gracefully if not set.
+        shell: pwsh
+        env:
+          DD_RUM_APP_ID:       ${{ secrets.DD_RUM_APP_ID }}
+          DD_RUM_CLIENT_TOKEN: ${{ secrets.DD_RUM_CLIENT_TOKEN }}
+          DD_RUM_SITE:         ${{ vars.DD_RUM_SITE }}
+          DD_RUM_ENV:          ${{ vars.DD_RUM_ENV }}
+        run: |
+          if (-not $env:DD_RUM_APP_ID) {
+            Write-Host "DD_RUM_APP_ID not set — RUM will be disabled in this build."
+            return
+          }
+          $cfg = [ordered]@{
+            applicationId           = $env:DD_RUM_APP_ID
+            clientToken             = $env:DD_RUM_CLIENT_TOKEN
+            site                    = if ($env:DD_RUM_SITE) { $env:DD_RUM_SITE } else { 'datadoghq.com' }
+            service                 = 'windows-proxy-services'
+            env                     = if ($env:DD_RUM_ENV)  { $env:DD_RUM_ENV  } else { 'production'    }
+            version                 = '${{ needs.version.outputs.semver }}'
+            sessionSampleRate       = 100
+            sessionReplaySampleRate = 20
+            allowedTracingUrls      = @('http://localhost')
+          }
+          $cfg | ConvertTo-Json |
+            Set-Content 'src\WindowsDashboardService\wwwroot\rum-config.json' -Encoding UTF8
+          Write-Host "RUM config written (site: $($cfg.site), env: $($cfg.env))."
+
       - name: Restore & Publish
         shell: pwsh
         run: |
@@ -181,6 +212,7 @@ jobs:
             installer\Product.wxs `
             installer\Services.wxs `
             installer\Files.wxs `
+            installer\RumConfigDlg.wxs `
             -arch x64 `
             -d "Version=$msiVer" `
             -d "Manufacturer=Kyle Taylor" `
@@ -207,6 +239,8 @@ jobs:
   smoke-test:
     needs: [version, build]
     runs-on: windows-latest
+    environment:
+      name: smoke-test
 
     steps:
       - name: Download MSI artifact
@@ -284,6 +318,67 @@ jobs:
           }
           if ($failed -gt 0) { exit 1 }
 
+      - name: Browser smoke test (Playwright)
+        shell: pwsh
+        run: |
+          npm install playwright
+          npx playwright install chromium --with-deps
+
+          # Single-quoted here-string: no PowerShell variable expansion inside,
+          # so $ in JavaScript is treated literally.
+          $js = @'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch();
+            const page    = await browser.newPage();
+            let passed = 0, failed = 0;
+            const ok   = m => { console.log('OK   ' + m); passed++; };
+            const fail = m => { console.error('FAIL ' + m); failed++;  };
+
+            try {
+              // Load the dashboard and wait for all in-flight requests to settle
+              await page.goto('http://localhost:5051', { waitUntil: 'networkidle', timeout: 15000 });
+
+              // Verify service cards rendered
+              const cards = await page.locator('.card').count();
+              cards > 0
+                ? ok(cards + ' service card(s) rendered')
+                : fail('no service cards found in dashboard');
+
+              // Verify rum-config.json is served and is valid JSON
+              const resp = await page.request.get('http://localhost:5051/rum-config.json');
+              if (!resp.ok()) {
+                fail('rum-config.json returned HTTP ' + resp.status());
+              } else {
+                let cfg;
+                try   { cfg = await resp.json(); ok('rum-config.json is valid JSON'); }
+                catch { fail('rum-config.json is not valid JSON'); }
+
+                if (cfg) {
+                  if (cfg.applicationId) {
+                    // Credentials were injected at build time — DD_RUM stub must exist.
+                    // The loader IIFE sets window.DD_RUM synchronously once the fetch
+                    // resolves, so networkidle guarantees it is already populated.
+                    const rumType = await page.evaluate(() => typeof window.DD_RUM);
+                    rumType !== 'undefined'
+                      ? ok('window.DD_RUM initialised (site: ' + cfg.site + ')')
+                      : fail('window.DD_RUM missing despite applicationId being set');
+                  } else {
+                    console.log('NOTE window.DD_RUM check skipped — applicationId not set in this build');
+                  }
+                }
+              }
+            } finally {
+              await browser.close();
+            }
+
+            console.log('\nBrowser smoke: ' + passed + ' passed, ' + failed + ' failed');
+            if (failed > 0) process.exit(1);
+          })();
+          '@
+
+          $js | node
+
       - name: Uninstall MSI
         # Run even if earlier steps failed so we always exercise the uninstaller.
         if: always()
@@ -318,6 +413,7 @@ jobs:
     needs: [version, smoke-test]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    environment: production
 
     steps:
       - name: Download MSI artifact

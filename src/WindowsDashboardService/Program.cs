@@ -1,5 +1,6 @@
 using System.ServiceProcess;
 using System.Text.Json;
+using Microsoft.Win32;
 
 // ---------------------------------------------------------------------------
 // Host setup
@@ -11,6 +12,35 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService(o => o.ServiceName = "WindowsDashboardService");
 builder.Services.AddHttpClient();
 builder.WebHost.UseUrls("http://+:5051");
+
+// ---------------------------------------------------------------------------
+// RUM config — if the MSI installer wrote values to the registry, regenerate
+// wwwroot/rum-config.json from them so the dashboard picks them up immediately.
+// Silently skipped if the registry key is absent (dev mode / build-injected config).
+// ---------------------------------------------------------------------------
+try
+{
+    using var rumKey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WindowsProxyServices\RUM");
+    if (rumKey?.GetValue("ApplicationId") is string appId && !string.IsNullOrEmpty(appId))
+    {
+        var rumCfg = new
+        {
+            applicationId           = appId,
+            clientToken             = rumKey.GetValue("ClientToken") as string ?? "",
+            site                    = rumKey.GetValue("Site")        as string ?? "datadoghq.com",
+            service                 = "windows-proxy-services",
+            env                     = rumKey.GetValue("Env")         as string ?? "",
+            version                 = rumKey.GetValue("Version")     as string ?? "",
+            sessionSampleRate       = 100,
+            sessionReplaySampleRate = 20,
+            allowedTracingUrls      = new[] { "http://localhost" },
+        };
+        var rumConfigPath = Path.Combine(AppContext.BaseDirectory, "wwwroot", "rum-config.json");
+        File.WriteAllText(rumConfigPath,
+            JsonSerializer.Serialize(rumCfg, new JsonSerializerOptions { WriteIndented = true }));
+    }
+}
+catch { /* non-fatal — RUM is optional */ }
 
 // Load services.json from the same directory as this exe
 var configPath = Path.Combine(AppContext.BaseDirectory, "services.json");
@@ -156,6 +186,62 @@ app.MapPost("/api/services/{name}/stop", (string name) =>
     catch (Exception ex) { return Results.Problem(ex.Message); }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/custom-request  — fire a GET or POST to any URL and return the response.
+// Body: { "url": "https://...", "method": "GET"|"POST", "body": "..." }
+// ---------------------------------------------------------------------------
+app.MapPost("/api/custom-request", async (CustomRequest req, IHttpClientFactory cf) =>
+{
+    if (string.IsNullOrWhiteSpace(req.Url))
+        return Results.BadRequest(new { error = "url is required" });
+
+    var client = cf.CreateClient();
+    client.Timeout = TimeSpan.FromSeconds(10);
+
+    try
+    {
+        HttpResponseMessage resp;
+        var method = req.Method?.ToUpperInvariant() ?? "GET";
+
+        if (method == "POST")
+        {
+            var content = new StringContent(
+                req.Body ?? string.Empty,
+                System.Text.Encoding.UTF8,
+                "application/json");
+            resp = await client.PostAsync(req.Url, content);
+        }
+        else
+        {
+            resp = await client.GetAsync(req.Url);
+        }
+
+        var body = await resp.Content.ReadAsStringAsync();
+        object? parsed = null;
+        try { parsed = JsonSerializer.Deserialize<JsonElement>(body); } catch { }
+
+        return Results.Ok(new
+        {
+            Url        = req.Url,
+            Method     = method,
+            StatusCode = (int)resp.StatusCode,
+            Body       = parsed ?? (object)body,
+            Error      = (string?)null,
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Ok(new
+        {
+            Url        = req.Url,
+            Method     = req.Method ?? "GET",
+            StatusCode = 0,
+            Body       = (object?)null,
+            Error      = ex.Message,
+        });
+    }
+});
+
 await app.RunAsync();
 
 // ---------------------------------------------------------------------------
@@ -169,3 +255,5 @@ record InstanceConfig(
     string ProxyUrl);
 
 record TestRequest(string? Path);
+
+record CustomRequest(string? Url, string? Method, string? Body);

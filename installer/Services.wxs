@@ -201,6 +201,19 @@
           Stop="both"
           Remove="uninstall"
           Wait="yes" />
+
+        <!--
+          RUM configuration — written from values collected in RumConfigDlg.
+          WindowsDashboardService reads these on startup and regenerates
+          wwwroot/rum-config.json so the browser dashboard picks them up.
+          All values are empty strings when the user leaves the dialog blank.
+        -->
+        <RegistryKey Root="HKLM" Key="SOFTWARE\WindowsProxyServices\RUM">
+          <RegistryValue Name="ApplicationId" Type="string" Value="[DD_RUM_APP_ID]"       />
+          <RegistryValue Name="ClientToken"   Type="string" Value="[DD_RUM_CLIENT_TOKEN]" />
+          <RegistryValue Name="Site"          Type="string" Value="[DD_RUM_SITE]"         />
+          <RegistryValue Name="Env"           Type="string" Value="[DD_RUM_ENV]"          />
+        </RegistryKey>
       </Component>
 
       <!-- ═══════════════════════════════════════════════════════════════════

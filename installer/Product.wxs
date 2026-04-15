@@ -70,6 +70,18 @@
     <WixVariable Id="WixUIDialogBmp" Value="installer\dialog.bmp" />
     -->
 
+    <!-- ── Datadog RUM installer properties ────────────────────────────── -->
+    <!--
+      Collected by RumConfigDlg and written to HKLM\SOFTWARE\WindowsProxyServices\RUM.
+      Secure="yes" passes them from the UI layer to the elevated execute sequence.
+      Can also be supplied on the command line for silent/automated installs:
+        msiexec /i ... /quiet DD_RUM_APP_ID="..." DD_RUM_CLIENT_TOKEN="..." DD_RUM_SITE="us3.datadoghq.com" DD_RUM_ENV="prod"
+    -->
+    <Property Id="DD_RUM_APP_ID"       Value=""              Secure="yes" />
+    <Property Id="DD_RUM_CLIENT_TOKEN" Value=""              Secure="yes" />
+    <Property Id="DD_RUM_SITE"         Value="datadoghq.com" Secure="yes" />
+    <Property Id="DD_RUM_ENV"          Value=""              Secure="yes" />
+
     <!-- ── Launch on exit ──────────────────────────────────────────────── -->
     <!--
       WIXUI_EXITDIALOGOPTIONALCHECKBOX shows a checkbox on the final dialog.

@@ -126,7 +126,85 @@ function cardHtml(s) {
 </div>`;
 }
 
+// ── Custom card (rendered once, never overwritten by refresh) ─────────────────
+function customCardHtml() {
+  return `
+<div class="col-12">
+  <div class="card">
+    <div class="card-header d-flex align-items-center gap-2">
+      <i class="bi bi-globe2 text-warning"></i>
+      <span class="fw-semibold">Custom Request</span>
+      <small class="text-muted ms-1">— send a request to any URL</small>
+    </div>
+    <div class="card-body d-flex flex-column gap-2">
+      <div class="input-group">
+        <select id="custom-method" class="form-select font-monospace"
+                style="max-width:90px;background:#0d1117;border-color:#30363d;color:#e6edf3"
+                onchange="document.getElementById('custom-body-wrap').classList.toggle('d-none',this.value!=='POST')">
+          <option>GET</option>
+          <option>POST</option>
+        </select>
+        <input id="custom-url" type="text" class="form-control font-monospace"
+               style="background:#0d1117;border-color:#30363d;color:#e6edf3"
+               placeholder="https://api.example.com/endpoint"
+               onkeydown="if(event.key==='Enter')doCustomTest()" />
+        <button class="btn btn-warning" onclick="doCustomTest()">
+          <i class="bi bi-send"></i>
+        </button>
+      </div>
+      <div id="custom-body-wrap" class="d-none">
+        <textarea id="custom-body" rows="3" class="form-control form-control-sm font-monospace"
+                  style="background:#0d1117;border-color:#30363d;color:#e6edf3"
+                  placeholder='{"key": "value"}'></textarea>
+      </div>
+    </div>
+    <div id="r-custom" class="d-none">
+      <div class="card-footer">
+        <pre id="r-custom-pre" class="response mb-0 text-success"></pre>
+      </div>
+    </div>
+  </div>
+</div>`;
+}
+
 // ── API ───────────────────────────────────────────────────────────────────────
+async function doCustomTest() {
+  const url    = document.getElementById('custom-url')?.value.trim();
+  const method = document.getElementById('custom-method')?.value ?? 'GET';
+  const body   = document.getElementById('custom-body')?.value ?? '';
+  const pre    = document.getElementById('r-custom-pre');
+
+  if (!url) {
+    document.getElementById('r-custom').classList.remove('d-none');
+    pre.className   = 'response mb-0 text-danger';
+    pre.textContent = '❌ Please enter a URL.';
+    return;
+  }
+
+  document.getElementById('r-custom').classList.remove('d-none');
+  pre.className   = 'response mb-0 text-muted';
+  pre.textContent = '⏳ Sending request…';
+
+  try {
+    const r    = await fetch('/api/custom-request', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ url, method, body: method === 'POST' ? body : null }),
+    });
+    const data = await r.json();
+    if (data.error) {
+      pre.className   = 'response mb-0 text-danger';
+      pre.textContent = `❌ ${data.error}\n\nURL: ${data.url}`;
+    } else {
+      pre.className   = 'response mb-0 text-success';
+      pre.textContent = `✅ HTTP ${data.statusCode}  [${data.method}]  ${data.url}\n\n${JSON.stringify(data.body, null, 2)}`;
+    }
+  } catch (e) {
+    pre.className   = 'response mb-0 text-danger';
+    pre.textContent = `❌ ${e.message}`;
+  }
+}
+
 async function doTest(name) {
   const rid  = `r-${name}`;
   const pre  = document.getElementById(`${rid}-pre`);
@@ -181,7 +259,8 @@ async function refresh() {
     const services = await r.json();
 
     if (firstRender) {
-      document.getElementById('grid').innerHTML = services.map(cardHtml).join('');
+      document.getElementById('grid').innerHTML =
+        services.map(cardHtml).join('') + customCardHtml();
       firstRender = false;
     } else {
       // Patch status badges only — keeps test response panels intact
@@ -212,6 +291,55 @@ async function refresh() {
 
 refresh();
 setInterval(refresh, POLL_MS);
+
+// ── Datadog RUM ───────────────────────────────────────────────────────────────
+// Config is served from /rum-config.json.
+// RUM is silently skipped if applicationId is absent or empty.
+// The file is populated by the MSI installer dialog (via registry) or by
+// writing it directly (CI secrets injection / manual edit).
+(function () {
+  // Maps the Datadog site value to its CDN path segment.
+  const SITE_CDN = {
+    'datadoghq.com':     'us1',
+    'us3.datadoghq.com': 'us3',
+    'us5.datadoghq.com': 'us5',
+    'datadoghq.eu':      'eu1',
+    'ap1.datadoghq.com': 'ap1',
+    'ddog-gov.com':      'fed',
+  };
+
+  fetch('/rum-config.json')
+    .then(r => r.ok ? r.json() : null)
+    .then(cfg => {
+      if (!cfg?.applicationId || !cfg?.clientToken) return;
+      const cdn = SITE_CDN[cfg.site] ?? 'us1';
+      (function (h, o, u, n, d) {
+        h = h[d] = h[d] || { q: [], onReady: function (c) { h.q.push(c) } };
+        d = o.createElement(u); d.async = 1;
+        d.src = `https://www.datadoghq-browser-agent.com/${cdn}/v6/datadog-rum.js`;
+        d.crossOrigin = '';
+        n = o.getElementsByTagName(u)[0]; n.parentNode.insertBefore(d, n);
+      })(window, document, 'script', null, 'DD_RUM');
+
+      window.DD_RUM.onReady(function () {
+        window.DD_RUM.init({
+          applicationId:           cfg.applicationId,
+          clientToken:             cfg.clientToken,
+          site:                    cfg.site,
+          service:                 cfg.service                 || 'windows-proxy-services',
+          env:                     cfg.env                     || '',
+          version:                 cfg.version                 || '',
+          sessionSampleRate:       cfg.sessionSampleRate       ?? 100,
+          sessionReplaySampleRate: cfg.sessionReplaySampleRate ?? 20,
+          trackResources:          true,
+          trackUserInteractions:   true,
+          trackLongTasks:          true,
+          allowedTracingUrls:      cfg.allowedTracingUrls      ?? ['http://localhost'],
+        });
+      });
+    })
+    .catch(() => { /* non-fatal — RUM is optional */ });
+}());
 </script>
 </body>
 </html>
