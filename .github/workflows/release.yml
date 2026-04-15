@@ -20,15 +20,20 @@ permissions:
   contents: write   # needed to create the GitHub Release
 
 jobs:
-  build-msi:
-    runs-on: windows-latest
+
+  # ── 1. Resolve version ───────────────────────────────────────────────────
+  #
+  # Runs on Linux (fast/cheap) and exports semver + MSI version strings
+  # as job outputs consumed by every downstream job.
+  # ─────────────────────────────────────────────────────────────────────────
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      semver:      ${{ steps.ver.outputs.SEMVER }}
+      msi_version: ${{ steps.ver.outputs.MSI_VERSION }}
+      msi_name:    ${{ steps.ver.outputs.MSI_NAME }}
 
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0   # full history so git describe works in install-services.ps1
-
-      # ── Version ──────────────────────────────────────────────────────────────
       - name: Resolve version
         id: ver
         shell: pwsh
@@ -37,19 +42,36 @@ jobs:
             $raw    = "${{ inputs.version }}"
             $semver = if ($raw) { $raw.TrimStart('v') } else { "0.0.0-dev.${{ github.run_number }}" }
           } else {
-            $semver = "${{ github.ref_name }}".TrimStart('v')   # strip leading 'v' from tag
+            $semver = "${{ github.ref_name }}".TrimStart('v')
           }
 
           # MSI ProductVersion must be X.Y.Z — strip any pre-release suffix
           $parts  = ($semver -split '-')[0].Split('.')
           while ($parts.Count -lt 3) { $parts += '0' }
-          $msiVer = $parts[0..2] -join '.'
+          $msiVer  = $parts[0..2] -join '.'
+          $msiName = "WindowsProxyServices-$semver.msi"
 
           echo "SEMVER=$semver"       >> $env:GITHUB_OUTPUT
           echo "MSI_VERSION=$msiVer" >> $env:GITHUB_OUTPUT
+          echo "MSI_NAME=$msiName"   >> $env:GITHUB_OUTPUT
           Write-Host "Semver: $semver  |  MSI version: $msiVer"
 
-      # ── Toolchain ─────────────────────────────────────────────────────────────
+
+  # ── 2. Build & package ───────────────────────────────────────────────────
+  #
+  # Compiles all three projects, generates the dynamic Files.wxs fragment,
+  # and produces the final MSI.  Uploads the MSI as a workflow artifact so
+  # subsequent jobs can download it without rebuilding.
+  # ─────────────────────────────────────────────────────────────────────────
+  build:
+    needs: version
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v5
         with:
@@ -61,7 +83,6 @@ jobs:
           dotnet tool install --global wix --version 4.0.5
           wix extension add WixToolset.UI.wixext/4.0.5
 
-      # ── Build ─────────────────────────────────────────────────────────────────
       - name: Restore & Publish
         shell: pwsh
         run: |
@@ -71,34 +92,20 @@ jobs:
             '-c', 'Release',
             '-r', 'win-x64',
             '--self-contained',
-            "-p:AssemblyVersion=${{ steps.ver.outputs.MSI_VERSION }}",
+            "-p:AssemblyVersion=${{ needs.version.outputs.msi_version }}",
             '-o', "${{ github.workspace }}\publish"
           )
 
-          # Publish all three projects to the same directory.
-          # They all target net8.0-windows so the runtime DLLs are compatible;
-          # identical files are simply overwritten by the later publish.
           dotnet publish src/WindowsProxyService/WindowsProxyService.csproj       @pubArgs
           dotnet publish src/WindowsDashboardService/WindowsDashboardService.csproj @pubArgs
           dotnet publish src/WindowsTrayApp/WindowsTrayApp.csproj                 @pubArgs
 
-      # ── Package ───────────────────────────────────────────────────────────────
-      #
-      # Services.wxs owns WindowsProxyService.exe (it's the component KeyPath that
-      # lets MSI resolve the service ImagePath automatically).  All remaining files
-      # — DLLs, services.json, runtime assets — are enumerated here and written to
-      # installer\Files.wxs so wix build can include them without hand-maintaining
-      # a long file list.
       - name: Generate WiX file fragment
         shell: pwsh
         run: |
           $publishDir = "${{ github.workspace }}\publish"
           $outputFile = "${{ github.workspace }}\installer\Files.wxs"
 
-          # Wix Guid="*" only works for components under standard Windows directories
-          # (ProgramFilesFolder, etc.).  Our path is custom, so we generate explicit
-          # deterministic GUIDs: MD5(namespace + filename) → same GUID every build,
-          # which is required for MSI upgrades to correctly track components.
           $md5 = [System.Security.Cryptography.MD5]::Create()
           function Get-FileGuid([string]$name) {
             $bytes = [System.Text.Encoding]::UTF8.GetBytes("WindowsProxyServices:$name")
@@ -106,33 +113,25 @@ jobs:
             return [System.Guid]::new($hash).ToString('D').ToUpper()
           }
 
-          # Exclude all service/app exes — each is declared in installer\Services.wxs
-          # with its own component so MSI can wire up service registrations and shortcuts.
           $excludedExes = @(
             'WindowsProxyService.exe',
             'WindowsDashboardService.exe',
             'WindowsTrayApp.exe'
           )
 
-          # Enumerate ALL files recursively so subdirectories (e.g. wwwroot) are included.
-          $allFiles = Get-ChildItem -Path $publishDir -File -Recurse |
-                      Where-Object { $_.Name -notin $excludedExes }
-
-          # Separate root-level files from files inside subdirectories.
+          $allFiles  = Get-ChildItem -Path $publishDir -File -Recurse |
+                       Where-Object { $_.Name -notin $excludedExes }
           $rootFiles = $allFiles | Where-Object { $_.DirectoryName -eq $publishDir }
           $subFiles  = $allFiles | Where-Object { $_.DirectoryName -ne $publishDir }
-
-          # Unique subdirectory paths relative to publishDir (e.g. "wwwroot").
-          $subDirs = $subFiles |
-                     ForEach-Object { $_.DirectoryName.Substring($publishDir.Length).TrimStart('\') } |
-                     Sort-Object -Unique
+          $subDirs   = $subFiles |
+                       ForEach-Object { $_.DirectoryName.Substring($publishDir.Length).TrimStart('\') } |
+                       Sort-Object -Unique
 
           $sb = [System.Text.StringBuilder]::new()
           $sb.AppendLine('<?xml version="1.0" encoding="UTF-8"?>') | Out-Null
           $sb.AppendLine('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">') | Out-Null
           $sb.AppendLine('  <Fragment>') | Out-Null
 
-          # Declare each subdirectory nested under INSTALLFOLDER.
           foreach ($dir in $subDirs) {
             $dirId   = 'Dir_' + ($dir -replace '[^a-zA-Z0-9]', '_')
             $dirName = Split-Path $dir -Leaf
@@ -141,7 +140,6 @@ jobs:
             $sb.AppendLine("    </DirectoryRef>") | Out-Null
           }
 
-          # Root-level components.
           $sb.AppendLine('    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">') | Out-Null
           foreach ($file in $rootFiles) {
             $id   = 'f_' + ($file.Name -replace '[^a-zA-Z0-9]', '_')
@@ -152,7 +150,6 @@ jobs:
             $sb.AppendLine("      </Component>") | Out-Null
           }
 
-          # Subdirectory components — Directory attribute overrides the group default.
           foreach ($file in $subFiles) {
             $relDir = $file.DirectoryName.Substring($publishDir.Length).TrimStart('\')
             $dirId  = 'Dir_' + ($relDir -replace '[^a-zA-Z0-9]', '_')
@@ -173,13 +170,11 @@ jobs:
           Write-Host "Generated Files.wxs with $($allFiles.Count) file components ($($rootFiles.Count) root, $($subFiles.Count) in subdirs)."
 
       - name: Build MSI
-        id: msi
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $semver  = "${{ steps.ver.outputs.SEMVER }}"
-          $msiVer  = "${{ steps.ver.outputs.MSI_VERSION }}"
-          $msiName = "WindowsProxyServices-$semver.msi"
+          $msiName = "${{ needs.version.outputs.msi_name }}"
+          $msiVer  = "${{ needs.version.outputs.msi_version }}"
           $pubDir  = "${{ github.workspace }}\publish"
 
           wix build `
@@ -193,27 +188,148 @@ jobs:
             -ext WixToolset.UI.wixext `
             -o "installer\$msiName"
 
-          echo "MSI_NAME=$msiName" >> $env:GITHUB_OUTPUT
           Write-Host "MSI built: installer\$msiName"
 
-      # ── Artifact + Release ────────────────────────────────────────────────────
-      #
-      # The MSI is always uploaded as a workflow artifact so it can be downloaded
-      # from the Actions tab — useful for test/dev builds triggered via workflow_dispatch.
-      #
-      # A GitHub Release is only created for tag pushes.
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v7
         with:
-          name: msi-${{ steps.ver.outputs.SEMVER }}
-          path: installer/${{ steps.msi.outputs.MSI_NAME }}
+          name: msi-${{ needs.version.outputs.semver }}
+          path: installer/${{ needs.version.outputs.msi_name }}
           retention-days: 14
 
+
+  # ── 3. Smoke test ────────────────────────────────────────────────────────
+  #
+  # Installs the MSI on a fresh Windows runner, waits for all six services
+  # to reach Running state, probes each HTTP endpoint, then uninstalls.
+  # Installer logs are uploaded as artifacts on failure for easy debugging.
+  # ─────────────────────────────────────────────────────────────────────────
+  smoke-test:
+    needs: [version, build]
+    runs-on: windows-latest
+
+    steps:
+      - name: Download MSI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: msi-${{ needs.version.outputs.semver }}
+          path: installer
+
+      - name: Install MSI
+        shell: pwsh
+        run: |
+          $msi  = "installer\${{ needs.version.outputs.msi_name }}"
+          # /qn  = silent (no UI); WIXUI_EXITDIALOGOPTIONALCHECKBOX=0 suppresses
+          # the tray-app launch that would otherwise fire from the default property.
+          $args = "/i `"$msi`" /qn /l*v install.log WIXUI_EXITDIALOGOPTIONALCHECKBOX=0"
+          $proc = Start-Process msiexec -ArgumentList $args -Wait -PassThru
+          if ($proc.ExitCode -ne 0) {
+            Write-Host "--- Last 50 lines of install.log ---"
+            Get-Content install.log -ErrorAction SilentlyContinue | Select-Object -Last 50
+            exit $proc.ExitCode
+          }
+
+      - name: Wait for services to reach Running state
+        shell: pwsh
+        run: |
+          $services = @(
+            'WindowsProxyService.OpenMeteo',
+            'WindowsProxyService.CatFacts',
+            'WindowsProxyService.JsonPlaceholder',
+            'WindowsProxyService.DogCeo',
+            'WindowsProxyService.ChuckNorris',
+            'WindowsDashboardService'
+          )
+          foreach ($svc in $services) {
+            $deadline = [DateTime]::UtcNow.AddSeconds(60)
+            do {
+              $status = (Get-Service -Name $svc -ErrorAction SilentlyContinue)?.Status
+              if ($status -eq 'Running') { break }
+              Start-Sleep -Seconds 3
+            } while ([DateTime]::UtcNow -lt $deadline)
+
+            $final = (Get-Service -Name $svc -ErrorAction SilentlyContinue)?.Status
+            if ($final -ne 'Running') {
+              Write-Error "Service '$svc' did not reach Running state (status: $final)"
+              # Dump recent Application event log entries to help diagnose
+              Get-WinEvent -LogName Application -MaxEvents 30 -ErrorAction SilentlyContinue |
+                Where-Object { $_.Message -match 'WindowsProxy|WindowsDashboard' } |
+                Format-List TimeCreated, Id, LevelDisplayName, Message | Out-String | Write-Host
+              exit 1
+            }
+            Write-Host "OK  $svc"
+          }
+
+      - name: Test HTTP endpoints
+        shell: pwsh
+        run: |
+          $tests = @(
+            @{ Url = 'http://localhost:5051/api/services'; Desc = 'Dashboard – services list'    },
+            @{ Url = 'http://localhost:5052/api/status';   Desc = 'OpenMeteo proxy status'       },
+            @{ Url = 'http://localhost:5053/api/status';   Desc = 'CatFacts proxy status'        },
+            @{ Url = 'http://localhost:5054/api/status';   Desc = 'JsonPlaceholder proxy status' },
+            @{ Url = 'http://localhost:5055/api/status';   Desc = 'DogCeo proxy status'          },
+            @{ Url = 'http://localhost:5056/api/status';   Desc = 'ChuckNorris proxy status'     }
+          )
+          $failed = 0
+          foreach ($t in $tests) {
+            try {
+              $resp = Invoke-WebRequest -Uri $t.Url -UseBasicParsing -TimeoutSec 10
+              if ($resp.StatusCode -ne 200) { throw "HTTP $($resp.StatusCode)" }
+              Write-Host "OK  $($t.Desc)"
+            } catch {
+              Write-Host "FAIL $($t.Desc) — $_"
+              $failed++
+            }
+          }
+          if ($failed -gt 0) { exit 1 }
+
+      - name: Uninstall MSI
+        # Run even if earlier steps failed so we always exercise the uninstaller.
+        if: always()
+        shell: pwsh
+        run: |
+          $msi  = "installer\${{ needs.version.outputs.msi_name }}"
+          $args = "/x `"$msi`" /qn /l*v uninstall.log"
+          $proc = Start-Process msiexec -ArgumentList $args -Wait -PassThru
+          if ($proc.ExitCode -ne 0) {
+            Write-Host "--- Last 50 lines of uninstall.log ---"
+            Get-Content uninstall.log -ErrorAction SilentlyContinue | Select-Object -Last 50
+            exit $proc.ExitCode
+          }
+
+      - name: Upload installer logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-logs-${{ needs.version.outputs.semver }}
+          path: |
+            install.log
+            uninstall.log
+          retention-days: 7
+
+
+  # ── 4. Create GitHub Release ─────────────────────────────────────────────
+  #
+  # Only runs on tag pushes (not workflow_dispatch).  Downloads the already-
+  # built MSI from the artifact store — no rebuild needed.
+  # ─────────────────────────────────────────────────────────────────────────
+  release:
+    needs: [version, smoke-test]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download MSI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: msi-${{ needs.version.outputs.semver }}
+          path: installer
+
       - name: Create GitHub Release
-        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v3
         with:
-          name: "Windows Proxy Services ${{ steps.ver.outputs.SEMVER }}"
+          name: "Windows Proxy Services ${{ needs.version.outputs.semver }}"
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: installer/${{ steps.msi.outputs.MSI_NAME }}
+          files: installer/${{ needs.version.outputs.msi_name }}

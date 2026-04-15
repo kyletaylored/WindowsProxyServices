@@ -211,9 +211,18 @@
         <File Id="FileTrayExe"
               Source="$(var.PublishDir)\WindowsTrayApp.exe"
               KeyPath="yes" />
+        <!-- Start Menu shortcut (launch manually) -->
         <Shortcut
           Id="ShortcutTray"
           Directory="ProgramMenuFolder"
+          Name="Windows Proxy Services Tray"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="AppIcon.ico"
+          Description="System tray manager — open the dashboard, start/stop services" />
+        <!-- All-users Startup folder — auto-launches the tray app for every user at login -->
+        <Shortcut
+          Id="ShortcutTrayStartup"
+          Directory="CommonStartupFolder"
           Name="Windows Proxy Services Tray"
           WorkingDirectory="INSTALLFOLDER"
           Icon="AppIcon.ico"

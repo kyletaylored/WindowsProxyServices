@@ -40,6 +40,8 @@ Download the latest `WindowsProxyServices-<version>.msi` from the [Releases](htt
 - Copies all binaries to `C:\Services\WindowsProxyService\` (configurable in the GUI)
 - Registers and auto-starts all five proxy services plus the dashboard service
 - Creates a **Start Menu shortcut** for the tray app
+- Adds the tray app to the **All Users Startup folder** so it launches automatically for every user who logs in
+- Offers a **"Launch tray app"** checkbox on the final screen (checked by default) to start it immediately after install
 
 Silent install:
 
@@ -47,6 +49,8 @@ Silent install:
 msiexec /i WindowsProxyServices-1.0.0.msi /quiet
 # Custom path:
 msiexec /i WindowsProxyServices-1.0.0.msi /quiet INSTALLFOLDER="D:\Custom\"
+# Suppress tray app launch (recommended for automated/unattended installs):
+msiexec /i WindowsProxyServices-1.0.0.msi /quiet WIXUI_EXITDIALOGOPTIONALCHECKBOX=0
 ```
 
 Uninstall:
@@ -244,13 +248,13 @@ Invoke-RestMethod -Method Post http://localhost:5051/api/services/DogCeo/stop
 - **Double-click** the icon → opens the dashboard in your default browser
 - **Right-click** → context menu:
   - **Open Dashboard** — opens [http://localhost:5051](http://localhost:5051)
-  - **Start All / Stop All** — controls all proxy services at once
-  - Per-service **Start / Stop** sub-menus (status dot `●`/`○` updates when you open the menu)
+  - **Start All / Stop All** — controls all proxy services at once *(admin only)*
+  - Per-service **Start / Stop** sub-menus (status dot `●`/`○` updates when you open the menu) *(admin only)*
   - **Exit**
 
-The tray app delegates start/stop to the dashboard API, so it needs `WindowsDashboardService` to be running. If the dashboard is unreachable it shows a warning message.
+Start/Stop controls are **disabled for non-admin users**. Any user can open the dashboard and view service status; only administrators can start or stop services. The tray app delegates start/stop to the dashboard API, so it needs `WindowsDashboardService` to be running. If the dashboard is unreachable it shows a warning message.
 
-After an MSI install, launch it from **Start Menu → Windows Proxy Services Tray** or directly from `C:\Services\WindowsProxyService\WindowsTrayApp.exe`.
+After an MSI install the tray app **launches automatically for all users at login** via the All Users Startup folder. It can also be launched manually from **Start Menu → Windows Proxy Services Tray** or directly from `C:\Services\WindowsProxyService\WindowsTrayApp.exe`.
 
 ---
 
@@ -443,6 +447,35 @@ Invoke-RestMethod "http://localhost:5056/jokes/random"
 Invoke-RestMethod "http://localhost:5056/jokes/random?category=science"
 Invoke-RestMethod "http://localhost:5056/jokes/categories"
 ```
+
+---
+
+## CI / Releases
+
+The release workflow (`.github/workflows/release.yml`) runs automatically on a semver tag push and can also be triggered manually from the Actions tab to produce a test MSI without creating a release.
+
+**Job progression:**
+
+```
+version  →  build  →  smoke-test  →  release (tag push only)
+```
+
+| Job | Runner | What it does |
+|-----|--------|--------------|
+| `version` | ubuntu | Resolves semver and MSI version strings; exports them as job outputs |
+| `build` | windows | `dotnet publish` all three projects, generates `Files.wxs`, builds the MSI, uploads it as a workflow artifact |
+| `smoke-test` | windows | Installs the MSI silently, polls all six services until `Running`, probes each HTTP endpoint, then uninstalls and verifies cleanup. Uploads installer logs as artifacts on failure. |
+| `release` | ubuntu | Downloads the artifact and publishes a GitHub Release with auto-generated release notes |
+
+**Create a release:**
+
+```powershell
+git tag v1.2.3 && git push --tags
+```
+
+**Trigger a dev build (no release):**
+
+Go to **Actions → Release → Run workflow** and optionally enter a version string. Leave it blank to get `0.0.0-dev.<run_number>`. The built MSI is available as a workflow artifact for 14 days.
 
 ---
 

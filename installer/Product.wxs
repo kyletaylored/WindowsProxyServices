@@ -51,6 +51,8 @@
     </StandardDirectory>
     <!-- Required to place the tray app shortcut in the Start Menu -->
     <StandardDirectory Id="ProgramMenuFolder" />
+    <!-- Required to place the tray app startup entry for all users -->
+    <StandardDirectory Id="CommonStartupFolder" />
 
     <!-- Standard install-directory selection UI. -->
     <ui:WixUI Id="WixUI_InstallDir" />

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Principal;
 using System.ServiceProcess;
 using System.Text.Json;
 
@@ -35,7 +36,8 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private ContextMenuStrip BuildMenu()
     {
-        var menu = new ContextMenuStrip { ShowImageMargin = false };
+        var isAdmin = IsAdministrator();
+        var menu    = new ContextMenuStrip { ShowImageMargin = false };
 
         // Open Dashboard (bold — primary action)
         var openItem = new ToolStripMenuItem("Open Dashboard")
@@ -46,8 +48,8 @@ public sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(openItem);
 
         menu.Items.Add(new ToolStripSeparator());
-        AddItem(menu, "Start All", () => ControlAll("start"));
-        AddItem(menu, "Stop All",  () => ControlAll("stop"));
+        AddItem(menu, "Start All", () => ControlAll("start"), isAdmin);
+        AddItem(menu, "Stop All",  () => ControlAll("stop"),  isAdmin);
         menu.Items.Add(new ToolStripSeparator());
 
         // One sub-menu per service  (StatusOffset = 5 items above)
@@ -55,8 +57,17 @@ public sealed class TrayApplicationContext : ApplicationContext
         {
             var sub = new ToolStripMenuItem(name);
             var n   = name; // capture for lambda
-            sub.DropDownItems.Add("Start", null, (_, _) => ControlService(n, "start"));
-            sub.DropDownItems.Add("Stop",  null, (_, _) => ControlService(n, "stop"));
+
+            var startItem = new ToolStripMenuItem("Start");
+            startItem.Click   += (_, _) => ControlService(n, "start");
+            startItem.Enabled  = isAdmin;
+
+            var stopItem = new ToolStripMenuItem("Stop");
+            stopItem.Click    += (_, _) => ControlService(n, "stop");
+            stopItem.Enabled   = isAdmin;
+
+            sub.DropDownItems.Add(startItem);
+            sub.DropDownItems.Add(stopItem);
             menu.Items.Add(sub);
         }
 
@@ -65,12 +76,16 @@ public sealed class TrayApplicationContext : ApplicationContext
         return menu;
     }
 
-    private static void AddItem(ToolStrip menu, string text, Action onClick)
+    private static void AddItem(ToolStrip menu, string text, Action onClick, bool enabled = true)
     {
-        var item = new ToolStripMenuItem(text);
+        var item = new ToolStripMenuItem(text) { Enabled = enabled };
         item.Click += (_, _) => onClick();
         menu.Items.Add(item);
     }
+
+    private static bool IsAdministrator() =>
+        new WindowsPrincipal(WindowsIdentity.GetCurrent())
+            .IsInRole(WindowsBuiltInRole.Administrator);
 
     // ── Status refresh ────────────────────────────────────────────────────────
 
