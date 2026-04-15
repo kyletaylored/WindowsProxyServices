@@ -33,6 +33,9 @@
     <!-- App icon shown in Add/Remove Programs -->
     <Icon Id="AppIcon.ico" SourceFile="installer\app.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <!-- "Comments" column in Add/Remove Programs (Programs and Features) -->
+    <Property Id="ARPCOMMENTS"
+              Value="YARP-based reverse proxy Windows services for Datadog APM tracing. Includes a web dashboard at http://localhost:5051." />
 
     <!--
       Directory layout:
