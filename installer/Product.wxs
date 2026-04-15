@@ -48,11 +48,12 @@
       <Directory Id="ServicesFolder" Name="Services">
         <Directory Id="INSTALLFOLDER" Name="WindowsProxyService" />
       </Directory>
+      <!-- All-users Startup folder — not in WiX v4's StandardDirectory allow-list,
+           so declared as a plain Directory; MSI resolves it to the system path. -->
+      <Directory Id="CommonStartupFolder" />
     </StandardDirectory>
     <!-- Required to place the tray app shortcut in the Start Menu -->
     <StandardDirectory Id="ProgramMenuFolder" />
-    <!-- Required to place the tray app startup entry for all users -->
-    <StandardDirectory Id="CommonStartupFolder" />
 
     <!-- Standard install-directory selection UI. -->
     <ui:WixUI Id="WixUI_InstallDir" />
@@ -77,10 +78,10 @@
       Can also be supplied on the command line for silent/automated installs:
         msiexec /i ... /quiet DD_RUM_APP_ID="..." DD_RUM_CLIENT_TOKEN="..." DD_RUM_SITE="us3.datadoghq.com" DD_RUM_ENV="prod"
     -->
-    <Property Id="DD_RUM_APP_ID"       Value=""              Secure="yes" />
-    <Property Id="DD_RUM_CLIENT_TOKEN" Value=""              Secure="yes" />
+    <Property Id="DD_RUM_APP_ID"       Secure="yes" />
+    <Property Id="DD_RUM_CLIENT_TOKEN" Secure="yes" />
     <Property Id="DD_RUM_SITE"         Value="datadoghq.com" Secure="yes" />
-    <Property Id="DD_RUM_ENV"          Value=""              Secure="yes" />
+    <Property Id="DD_RUM_ENV"          Secure="yes" />
 
     <!-- ── Launch on exit ──────────────────────────────────────────────── -->
     <!--
@@ -108,9 +109,8 @@
       Impersonate="yes" />
 
     <InstallExecuteSequence>
-      <Custom Action="LaunchTrayApp" After="InstallFinalize">
-        WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT REMOVE
-      </Custom>
+      <Custom Action="LaunchTrayApp" After="InstallFinalize"
+              Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT REMOVE" />
     </InstallExecuteSequence>
 
     <Feature Id="ProductFeature" Title="Windows Proxy Services" Level="1">
