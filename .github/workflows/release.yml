@@ -83,37 +83,6 @@ jobs:
           dotnet tool install --global wix --version 4.0.5
           wix extension add WixToolset.UI.wixext/4.0.5
 
-      - name: Inject RUM config
-        # Optional — populate rum-config.json before publish so RUM is active
-        # in the shipped dashboard without requiring post-install configuration.
-        # Set secrets DD_RUM_APP_ID and DD_RUM_CLIENT_TOKEN plus vars DD_RUM_SITE
-        # and DD_RUM_ENV in repo/org settings.  Skip gracefully if not set.
-        shell: pwsh
-        env:
-          DD_RUM_APP_ID:       ${{ secrets.DD_RUM_APP_ID }}
-          DD_RUM_CLIENT_TOKEN: ${{ secrets.DD_RUM_CLIENT_TOKEN }}
-          DD_RUM_SITE:         ${{ vars.DD_RUM_SITE }}
-          DD_RUM_ENV:          ${{ vars.DD_RUM_ENV }}
-        run: |
-          if (-not $env:DD_RUM_APP_ID) {
-            Write-Host "DD_RUM_APP_ID not set — RUM will be disabled in this build."
-            return
-          }
-          $cfg = [ordered]@{
-            applicationId           = $env:DD_RUM_APP_ID
-            clientToken             = $env:DD_RUM_CLIENT_TOKEN
-            site                    = if ($env:DD_RUM_SITE) { $env:DD_RUM_SITE } else { 'datadoghq.com' }
-            service                 = 'windows-proxy-services'
-            env                     = if ($env:DD_RUM_ENV)  { $env:DD_RUM_ENV  } else { 'production'    }
-            version                 = '${{ needs.version.outputs.semver }}'
-            sessionSampleRate       = 100
-            sessionReplaySampleRate = 20
-            allowedTracingUrls      = @('http://localhost')
-          }
-          $cfg | ConvertTo-Json |
-            Set-Content 'src\WindowsDashboardService\wwwroot\rum-config.json' -Encoding UTF8
-          Write-Host "RUM config written (site: $($cfg.site), env: $($cfg.env))."
-
       - name: Restore & Publish
         shell: pwsh
         run: |
@@ -250,13 +219,35 @@ jobs:
           path: installer
 
       - name: Install MSI
+        # /qn  = silent (no UI); WIXUI_EXITDIALOGOPTIONALCHECKBOX=0 suppresses
+        # the tray-app launch that would otherwise fire from the default property.
+        #
+        # RUM values are passed as MSI properties so they travel through the same
+        # registry path that the installer dialog uses for interactive installs.
+        # Set secrets DD_RUM_APP_ID / DD_RUM_CLIENT_TOKEN and vars DD_RUM_SITE /
+        # DD_RUM_ENV in repo/org settings to exercise the RUM code path in CI.
         shell: pwsh
+        env:
+          DD_RUM_APP_ID:       ${{ secrets.DD_RUM_APP_ID }}
+          DD_RUM_CLIENT_TOKEN: ${{ secrets.DD_RUM_CLIENT_TOKEN }}
+          DD_RUM_SITE:         ${{ vars.DD_RUM_SITE }}
+          DD_RUM_ENV:          ${{ vars.DD_RUM_ENV }}
         run: |
-          $msi  = "installer\${{ needs.version.outputs.msi_name }}"
-          # /qn  = silent (no UI); WIXUI_EXITDIALOGOPTIONALCHECKBOX=0 suppresses
-          # the tray-app launch that would otherwise fire from the default property.
-          $args = "/i `"$msi`" /qn /l*v install.log WIXUI_EXITDIALOGOPTIONALCHECKBOX=0"
-          $proc = Start-Process msiexec -ArgumentList $args -Wait -PassThru
+          $msi      = "installer\${{ needs.version.outputs.msi_name }}"
+          $rumProps = ""
+          if ($env:DD_RUM_APP_ID) {
+            $site     = if ($env:DD_RUM_SITE) { $env:DD_RUM_SITE } else { 'datadoghq.com' }
+            $rumEnv   = if ($env:DD_RUM_ENV)  { $env:DD_RUM_ENV  } else { 'ci' }
+            $rumProps = " DD_RUM_APP_ID=`"$($env:DD_RUM_APP_ID)`"" +
+                        " DD_RUM_CLIENT_TOKEN=`"$($env:DD_RUM_CLIENT_TOKEN)`"" +
+                        " DD_RUM_SITE=`"$site`"" +
+                        " DD_RUM_ENV=`"$rumEnv`""
+            Write-Host "RUM properties will be passed to installer (site: $site, env: $rumEnv)."
+          } else {
+            Write-Host "DD_RUM_APP_ID not set — installing without RUM (window.DD_RUM check will be skipped)."
+          }
+          $msiArgs = "/i `"$msi`" /qn /l*v install.log WIXUI_EXITDIALOGOPTIONALCHECKBOX=0$rumProps"
+          $proc    = Start-Process msiexec -ArgumentList $msiArgs -Wait -PassThru
           if ($proc.ExitCode -ne 0) {
             Write-Host "--- Last 50 lines of install.log ---"
             Get-Content install.log -ErrorAction SilentlyContinue | Select-Object -Last 50

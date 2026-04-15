@@ -494,18 +494,20 @@ msiexec /i WindowsProxyServices.msi /quiet `
   DD_RUM_ENV="prod"
 ```
 
-**4 — GitHub Actions / forking (build-time injection)**
+**4 — GitHub Actions / CI silent install**
 
-Set the following in your repo/org settings and the release workflow writes `rum-config.json` before `dotnet publish`, baking it into the MSI:
+To exercise the RUM code path in the smoke-test job, set the following in your repo/org settings. The release workflow passes them as `msiexec` properties during the silent install, following the exact same registry path as an interactive GUI install:
 
 | Name | Type | Description |
 |------|------|-------------|
 | `DD_RUM_APP_ID` | Secret | RUM application ID |
 | `DD_RUM_CLIENT_TOKEN` | Secret | RUM client token |
-| `DD_RUM_SITE` | Variable | Datadog site (e.g. `us3.datadoghq.com`) |
-| `DD_RUM_ENV` | Variable | Environment name (e.g. `prod`) |
+| `DD_RUM_SITE` | Variable | Datadog site (e.g. `us3.datadoghq.com`) — defaults to `datadoghq.com` |
+| `DD_RUM_ENV` | Variable | Environment name — defaults to `ci` |
 
-If `DD_RUM_APP_ID` is not set the step is skipped and the MSI ships with RUM disabled.
+If `DD_RUM_APP_ID` is not set, the installer runs without RUM and the `window.DD_RUM` check in the Playwright smoke test is skipped rather than failed.
+
+> **Note:** RUM values are never baked into the MSI at build time. The shipped MSI always has RUM disabled by default; values only reach the dashboard at runtime via the registry path populated by the installer.
 
 ### Supported sites
 
@@ -533,8 +535,8 @@ version  →  build  →  smoke-test  →  release (tag push only)
 | Job | Runner | What it does |
 |-----|--------|--------------|
 | `version` | ubuntu | Resolves semver and MSI version strings; exports them as job outputs |
-| `build` | windows | Optionally injects RUM config from secrets, `dotnet publish` all three projects, generates `Files.wxs`, builds the MSI, uploads it as a workflow artifact |
-| `smoke-test` | windows | Installs the MSI silently, polls all six services until `Running`, probes each HTTP endpoint, runs a headless Playwright browser test against the dashboard, then uninstalls. Uploads installer logs on failure. |
+| `build` | windows | `dotnet publish` all three projects, generates `Files.wxs`, builds the MSI, uploads it as a workflow artifact |
+| `smoke-test` | windows | Installs the MSI silently (optionally passing `DD_RUM_*` secrets as `msiexec` properties), polls all six services until `Running`, probes each HTTP endpoint, runs a headless Playwright browser test against the dashboard, then uninstalls. Uploads installer logs on failure. |
 | `release` | ubuntu | Downloads the artifact and publishes a GitHub Release with auto-generated release notes |
 
 The Playwright browser test navigates to `http://localhost:5051`, asserts service cards are visible, validates `rum-config.json` is valid JSON, and — when `DD_RUM_APP_ID` is set — asserts `window.DD_RUM` was initialised. The RUM assertion is silently skipped when credentials are not configured.

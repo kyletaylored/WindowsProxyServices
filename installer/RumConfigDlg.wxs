@@ -16,8 +16,11 @@
     - <Text> uses Value="..." attribute (inner text is obsolete)
     - <Publish> uses Condition="..." attribute (inner text is obsolete)
     - <ListItem> has no Order attribute; ordering is positional
+    - Dialog sequence overrides must be inside <ui:WixUI> (not a bare <UI>),
+      or the Publish elements are never linked into the active dialog set.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Fragment>
     <UI>
 
@@ -91,14 +94,25 @@
         <ListItem Text="ddog-gov.com (US1-FED)"  Value="ddog-gov.com"      />
       </ComboBox>
 
-      <!--
-        Wire this dialog into the WixUI_InstallDir sequence.
-        Order="20" fires after the built-in transition (Order≈1), overwriting
-        the queued destination — MSI uses the last-queued NewDialog value.
-      -->
+    </UI>
+
+    <!--
+      Extended UI set: WixUI_InstallDir + RumConfigDlg inserted between
+      InstallDirDlg and VerifyReadyDlg.
+
+      In WiX v4, dialog sequence overrides MUST live inside a named <ui:WixUI>
+      that references the base set via <ui:UIRef>.  A bare <UI><Publish> block
+      in a Fragment is never linked into the active dialog chain, so the dialog
+      would never appear — that was the bug in the previous approach.
+
+      Product.wxs references this set as: <ui:WixUI Id="WixUI_InstallDir_RUM" />
+    -->
+    <ui:WixUI Id="WixUI_InstallDir_RUM">
+      <ui:UIRef Id="WixUI_InstallDir" />
+      <!-- Order="20" beats the built-in Next→VerifyReadyDlg transition (Order=3-4) -->
       <Publish Dialog="InstallDirDlg"  Control="Next" Event="NewDialog" Value="RumConfigDlg" Order="20" />
       <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="RumConfigDlg" Order="20" />
+    </ui:WixUI>
 
-    </UI>
   </Fragment>
 </Wix>

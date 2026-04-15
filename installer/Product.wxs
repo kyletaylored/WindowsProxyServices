@@ -55,8 +55,8 @@
     <!-- Required to place the tray app shortcut in the Start Menu -->
     <StandardDirectory Id="ProgramMenuFolder" />
 
-    <!-- Standard install-directory selection UI. -->
-    <ui:WixUI Id="WixUI_InstallDir" />
+    <!-- Extended UI set: WixUI_InstallDir + RumConfigDlg (defined in RumConfigDlg.wxs). -->
+    <ui:WixUI Id="WixUI_InstallDir_RUM" />
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
     <!-- Replace the default lorem-ipsum placeholder with our own license/disclaimer. -->
     <WixVariable Id="WixUILicenseRtf" Value="installer\License.rtf" />
