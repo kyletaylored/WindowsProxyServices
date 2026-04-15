@@ -318,53 +318,72 @@ jobs:
           }
           if ($failed -gt 0) { exit 1 }
 
-      - name: Browser smoke test (Playwright)
+      - name: Install Playwright
         shell: pwsh
         run: |
           npm install playwright
           npx playwright install chromium --with-deps
 
-          # Single-quoted here-string: no PowerShell variable expansion inside,
-          # so $ in JavaScript is treated literally.
+      - name: Run browser smoke test
+        shell: pwsh
+        run: |
+          # Single-quoted here-string — $ is literal, so JS template literals work as-is.
           $js = @'
           const { chromium } = require('playwright');
+          const fs = require('fs');
+
+          const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+          const rows = [];
+
+          const record = (check, status, detail) => {
+            const icon   = status === 'pass' ? '✅' : status === 'fail' ? '❌' : '⏭';
+            const label  = status === 'pass' ? 'Pass' : status === 'fail' ? 'Fail' : 'Skipped';
+            rows.push(`| ${check} | ${icon} ${label} | ${detail ?? ''} |`);
+            const line = `${icon}  ${label.padEnd(7)} ${check}${detail ? ' — ' + detail : ''}`;
+            status === 'fail' ? console.error(line) : console.log(line);
+          };
+
           (async () => {
             const browser = await chromium.launch();
             const page    = await browser.newPage();
-            let passed = 0, failed = 0;
-            const ok   = m => { console.log('OK   ' + m); passed++; };
-            const fail = m => { console.error('FAIL ' + m); failed++;  };
+            let failed = 0;
 
             try {
-              // Load the dashboard and wait for all in-flight requests to settle
               await page.goto('http://localhost:5051', { waitUntil: 'networkidle', timeout: 15000 });
 
-              // Verify service cards rendered
+              // Service cards visible
               const cards = await page.locator('.card').count();
-              cards > 0
-                ? ok(cards + ' service card(s) rendered')
-                : fail('no service cards found in dashboard');
+              if (cards > 0) record('Service cards rendered', 'pass', `${cards} cards`);
+              else           { record('Service cards rendered', 'fail', 'no cards found'); failed++; }
 
-              // Verify rum-config.json is served and is valid JSON
+              // rum-config.json served and parseable
               const resp = await page.request.get('http://localhost:5051/rum-config.json');
               if (!resp.ok()) {
-                fail('rum-config.json returned HTTP ' + resp.status());
+                record('rum-config.json served', 'fail', `HTTP ${resp.status()}`);
+                failed++;
               } else {
                 let cfg;
-                try   { cfg = await resp.json(); ok('rum-config.json is valid JSON'); }
-                catch { fail('rum-config.json is not valid JSON'); }
+                try {
+                  cfg = await resp.json();
+                  record('rum-config.json valid JSON', 'pass', null);
+                } catch {
+                  record('rum-config.json valid JSON', 'fail', 'parse error');
+                  failed++;
+                }
 
                 if (cfg) {
                   if (cfg.applicationId) {
-                    // Credentials were injected at build time — DD_RUM stub must exist.
-                    // The loader IIFE sets window.DD_RUM synchronously once the fetch
-                    // resolves, so networkidle guarantees it is already populated.
+                    // DD_RUM stub is set synchronously by the loader IIFE once
+                    // the fetch resolves; networkidle guarantees it ran already.
                     const rumType = await page.evaluate(() => typeof window.DD_RUM);
-                    rumType !== 'undefined'
-                      ? ok('window.DD_RUM initialised (site: ' + cfg.site + ')')
-                      : fail('window.DD_RUM missing despite applicationId being set');
+                    if (rumType !== 'undefined')
+                      record('window.DD_RUM initialised', 'pass', `site: ${cfg.site}`);
+                    else {
+                      record('window.DD_RUM initialised', 'fail', 'missing despite applicationId being set');
+                      failed++;
+                    }
                   } else {
-                    console.log('NOTE window.DD_RUM check skipped — applicationId not set in this build');
+                    record('window.DD_RUM initialised', 'skip', 'applicationId not set in this build');
                   }
                 }
               }
@@ -372,7 +391,23 @@ jobs:
               await browser.close();
             }
 
-            console.log('\nBrowser smoke: ' + passed + ' passed, ' + failed + ' failed');
+            // ── GitHub Step Summary ───────────────────────────────────────────
+            const passed  = rows.filter(r => r.includes('✅')).length;
+            const skipped = rows.filter(r => r.includes('⏭')).length;
+            if (summaryPath) {
+              const md = [
+                '## 🌐 Browser Smoke Test',
+                '',
+                '| Check | Status | Detail |',
+                '|---|---|---|',
+                ...rows,
+                '',
+                `**${passed} passed · ${failed} failed · ${skipped} skipped**`,
+              ].join('\n');
+              fs.appendFileSync(summaryPath, md + '\n');
+            }
+
+            console.log(`\nBrowser smoke: ${passed} passed, ${failed} failed, ${skipped} skipped`);
             if (failed > 0) process.exit(1);
           })();
           '@
