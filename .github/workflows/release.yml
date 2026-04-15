@@ -213,7 +213,7 @@ jobs:
 
     steps:
       - name: Download MSI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: msi-${{ needs.version.outputs.semver }}
           path: installer
@@ -443,7 +443,7 @@ jobs:
 
     steps:
       - name: Download MSI artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: msi-${{ needs.version.outputs.semver }}
           path: installer
