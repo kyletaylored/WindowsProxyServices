@@ -20,7 +20,9 @@ internal static class ProxyHost
 
         builder.WebHost.UseUrls($"http://{config.Host}:{config.Port}");
 
-        builder.Logging.ClearProviders();
+        // Do NOT call ClearProviders() here — UseWindowsService adds the Windows
+        // Event Log sink when running under SCM, and clearing removes it.
+        // JSON console is added on top for structured output in dev/interactive mode.
         builder.Logging.AddJsonConsole(options =>
         {
             options.IncludeScopes     = true;

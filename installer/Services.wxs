@@ -39,9 +39,13 @@
           ErrorControl="normal"
           Arguments="--name OpenMeteo" />
         <ServiceControl
-          Id="SvcOpenMeteoCtrl"
+          Id="SvcOpenMeteoStart"
           Name="WindowsProxyService.OpenMeteo"
           Start="install"
+          Wait="no" />
+        <ServiceControl
+          Id="SvcOpenMeteoStop"
+          Name="WindowsProxyService.OpenMeteo"
           Stop="both"
           Remove="uninstall"
           Wait="yes" />
@@ -64,9 +68,13 @@
           ErrorControl="normal"
           Arguments="--name CatFacts" />
         <ServiceControl
-          Id="SvcCatFactsCtrl"
+          Id="SvcCatFactsStart"
           Name="WindowsProxyService.CatFacts"
           Start="install"
+          Wait="no" />
+        <ServiceControl
+          Id="SvcCatFactsStop"
+          Name="WindowsProxyService.CatFacts"
           Stop="both"
           Remove="uninstall"
           Wait="yes" />
@@ -89,9 +97,13 @@
           ErrorControl="normal"
           Arguments="--name JsonPlaceholder" />
         <ServiceControl
-          Id="SvcJsonPlaceholderCtrl"
+          Id="SvcJsonPlaceholderStart"
           Name="WindowsProxyService.JsonPlaceholder"
           Start="install"
+          Wait="no" />
+        <ServiceControl
+          Id="SvcJsonPlaceholderStop"
+          Name="WindowsProxyService.JsonPlaceholder"
           Stop="both"
           Remove="uninstall"
           Wait="yes" />
@@ -114,9 +126,13 @@
           ErrorControl="normal"
           Arguments="--name DogCeo" />
         <ServiceControl
-          Id="SvcDogCeoCtrl"
+          Id="SvcDogCeoStart"
           Name="WindowsProxyService.DogCeo"
           Start="install"
+          Wait="no" />
+        <ServiceControl
+          Id="SvcDogCeoStop"
+          Name="WindowsProxyService.DogCeo"
           Stop="both"
           Remove="uninstall"
           Wait="yes" />
@@ -139,9 +155,13 @@
           ErrorControl="normal"
           Arguments="--name ChuckNorris" />
         <ServiceControl
-          Id="SvcChuckNorrisCtrl"
+          Id="SvcChuckNorrisStart"
           Name="WindowsProxyService.ChuckNorris"
           Start="install"
+          Wait="no" />
+        <ServiceControl
+          Id="SvcChuckNorrisStop"
+          Name="WindowsProxyService.ChuckNorris"
           Stop="both"
           Remove="uninstall"
           Wait="yes" />
@@ -171,9 +191,13 @@
           Start="auto"
           ErrorControl="normal" />
         <ServiceControl
-          Id="SvcDashCtrl"
+          Id="SvcDashStart"
           Name="WindowsDashboardService"
           Start="install"
+          Wait="no" />
+        <ServiceControl
+          Id="SvcDashStop"
+          Name="WindowsDashboardService"
           Stop="both"
           Remove="uninstall"
           Wait="yes" />
