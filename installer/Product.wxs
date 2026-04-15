@@ -58,6 +58,47 @@
     <!-- Replace the default lorem-ipsum placeholder with our own license/disclaimer. -->
     <WixVariable Id="WixUILicenseRtf" Value="installer\License.rtf" />
 
+    <!--
+      TODO: Add custom installer dialog images (see GitHub issue).
+      Banner : 493 × 58  px BMP — top strip shown on all interior dialog pages.
+      Dialog : 493 × 312 px BMP — left panel on the Welcome and Exit dialogs.
+    -->
+    <!--
+    <WixVariable Id="WixUIBannerBmp" Value="installer\banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="installer\dialog.bmp" />
+    -->
+
+    <!-- ── Launch on exit ──────────────────────────────────────────────── -->
+    <!--
+      WIXUI_EXITDIALOGOPTIONALCHECKBOX shows a checkbox on the final dialog.
+      Setting it to "1" means checked by default.
+      Secure="yes" ensures the property is passed from the UI layer to the
+      elevated execute sequence so the condition on LaunchTrayApp works.
+    -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" Secure="yes" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT"
+              Value="Launch Windows Proxy Services tray app" />
+
+    <!--
+      Fire-and-forget: launch the tray app after the installer completes.
+      FileRef="FileTrayExe" resolves to the installed WindowsTrayApp.exe.
+      asyncNoWait lets the installer exit without waiting for the tray app.
+      Condition: checkbox is checked AND this is not an uninstall.
+    -->
+    <CustomAction
+      Id="LaunchTrayApp"
+      FileRef="FileTrayExe"
+      ExeCommand=""
+      Execute="immediate"
+      Return="asyncNoWait"
+      Impersonate="yes" />
+
+    <InstallExecuteSequence>
+      <Custom Action="LaunchTrayApp" After="InstallFinalize">
+        WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT REMOVE
+      </Custom>
+    </InstallExecuteSequence>
+
     <Feature Id="ProductFeature" Title="Windows Proxy Services" Level="1">
       <!-- All runtime files (DLLs, services.json, …) — generated at build time -->
       <ComponentGroupRef Id="ProductComponents" />
