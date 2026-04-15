@@ -55,8 +55,14 @@
     <!-- Required to place the tray app shortcut in the Start Menu -->
     <StandardDirectory Id="ProgramMenuFolder" />
 
-    <!-- Standard install-directory UI. RumConfigDlg.wxs wires itself into the sequence. -->
+    <!-- Standard install-directory UI. -->
     <ui:WixUI Id="WixUI_InstallDir" />
+    <!--
+      Pull in the named UI block from RumConfigDlg.wxs so the linker does not
+      trim it.  That block contains the <Publish> overrides that insert
+      RumConfigDlg between InstallDirDlg and VerifyReadyDlg.
+    -->
+    <UIRef Id="WixUI_InstallDir_RUM" />
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
     <!-- Replace the default lorem-ipsum placeholder with our own license/disclaimer. -->
     <WixVariable Id="WixUILicenseRtf" Value="installer\License.rtf" />

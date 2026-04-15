@@ -21,7 +21,13 @@
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Fragment>
-    <UI>
+    <!--
+      Give this UI block a named Id so the WiX v4 linker does not trim it as an
+      unreferenced symbol.  Product.wxs pulls it in with <UIRef Id="WixUI_InstallDir_RUM" />.
+      Without the Id + UIRef pair, the <Publish> rows below are silently absent
+      from the MSI's ControlEvent table and the dialog never appears in the wizard.
+    -->
+    <UI Id="WixUI_InstallDir_RUM">
 
       <!-- ── Dialog definition ──────────────────────────────────────────── -->
       <Dialog Id="RumConfigDlg" Width="370" Height="270" Title="[ProductName] Setup">
@@ -96,11 +102,17 @@
       <!--
         Wire this dialog into the WixUI_InstallDir sequence.
         The built-in InstallDirDlg Next→VerifyReadyDlg transition uses Order=4.
-        Order=9999 guarantees our NewDialog fires last and wins.
-        In WiX v4 the last-queued NewDialog value is the one the installer uses.
+        Order=9999 guarantees our NewDialog fires last and wins — MSI uses the
+        last-queued NewDialog value after all ControlEvent rows have been evaluated.
+
+        Conditions mirror the built-in so the dialog only appears when appropriate:
+          InstallDirDlg Next: only when the path is valid (or validation is skipped)
+          VerifyReadyDlg Back: only during a fresh install (not repair/remove)
       -->
-      <Publish Dialog="InstallDirDlg"  Control="Next" Event="NewDialog" Value="RumConfigDlg" Order="9999" />
-      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="RumConfigDlg" Order="9999" />
+      <Publish Dialog="InstallDirDlg"  Control="Next" Event="NewDialog" Value="RumConfigDlg" Order="9999"
+               Condition="WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID=&quot;1&quot;" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="RumConfigDlg" Order="9999"
+               Condition="NOT Installed" />
 
     </UI>
   </Fragment>
