@@ -178,8 +178,9 @@ app.MapGet("/api/reports/summary", async () =>
     using var conn = new SqlConnection(connStr);
     await conn.OpenAsync();
     using var cmd = conn.CreateCommand();
-    cmd.CommandText = "sp_GetOrderSummary";
-    cmd.CommandType = CommandType.StoredProcedure;
+    // CommandType.Text + EXEC so Datadog DBM captures a real query fingerprint
+    // rather than an RPC call that only shows the procedure name.
+    cmd.CommandText = "EXEC sp_GetOrderSummary";
     using var rdr = await cmd.ExecuteReaderAsync();
     var rows = new List<object>();
     while (await rdr.ReadAsync())
@@ -200,8 +201,7 @@ app.MapGet("/api/customers/{id:int}/orders", async (int id) =>
     using var conn = new SqlConnection(connStr);
     await conn.OpenAsync();
     using var cmd = conn.CreateCommand();
-    cmd.CommandText = "sp_GetCustomerOrders";
-    cmd.CommandType = CommandType.StoredProcedure;
+    cmd.CommandText = "EXEC sp_GetCustomerOrders @CustomerId";
     cmd.Parameters.AddWithValue("@CustomerId", id);
     using var rdr = await cmd.ExecuteReaderAsync();
     var rows = new List<object>();
