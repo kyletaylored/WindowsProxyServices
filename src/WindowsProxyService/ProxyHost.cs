@@ -9,11 +9,13 @@ internal static class ProxyHost
 {
     internal static async Task RunAsync(InstanceConfig config, string[] args, bool isSingleService)
     {
-        var builder = WebApplication.CreateBuilder(args);
-
-        // Set content root explicitly so the service always finds its files regardless of
-        // what Directory.GetCurrentDirectory() returns when started by SCM.
-        builder.Host.UseContentRoot(AppContext.BaseDirectory);
+        // ContentRootPath passed at construction — setting it via builder.Host.UseContentRoot()
+        // after CreateBuilder throws NotSupportedException in ASP.NET Core 8.
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            Args            = args,
+            ContentRootPath = AppContext.BaseDirectory,
+        });
 
         if (isSingleService)
             builder.Host.UseWindowsService(o => o.ServiceName = $"WindowsProxyService.{config.InstanceName}");
