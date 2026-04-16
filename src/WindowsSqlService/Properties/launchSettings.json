@@ -2,8 +2,7 @@
   "profiles": {
     "WindowsSqlService": {
       "commandName": "Project",
-      "launchBrowser": true,
-      "launchUrl": "api/status",
+      "launchBrowser": false,
       "applicationUrl": "http://localhost:5055",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
