@@ -184,6 +184,11 @@ app.MapPost("/api/services/{name}/start", (string name) =>
             sc.Start();
         return Results.Ok(new { Status = "Starting" });
     }
+    catch (InvalidOperationException)
+    {
+        // Service not registered — running in dev mode without SCM install.
+        return Results.Ok(new { Status = "NotRegistered" });
+    }
     catch (Exception ex) { return Results.Problem(ex.Message); }
 });
 
@@ -197,6 +202,11 @@ app.MapPost("/api/services/{name}/stop", (string name) =>
         if (sc.Status == ServiceControllerStatus.Running)
             sc.Stop();
         return Results.Ok(new { Status = "Stopping" });
+    }
+    catch (InvalidOperationException)
+    {
+        // Service not registered — running in dev mode without SCM install.
+        return Results.Ok(new { Status = "NotRegistered" });
     }
     catch (Exception ex) { return Results.Problem(ex.Message); }
 });

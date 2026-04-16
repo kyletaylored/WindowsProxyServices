@@ -145,7 +145,17 @@ function cardHtml(s) {
   <div class="card h-100">
     <div class="card-header d-flex justify-content-between align-items-center">
       <span class="fw-semibold">${emoji} ${n}</span>
-      <small id="status-${n}">${dotHtml(s.status)}</small>
+      <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-link btn-sm p-0 text-success" title="Start"
+                onclick="doControl(this,'${n}','start')">
+          <i class="bi bi-play-fill"></i>
+        </button>
+        <button class="btn btn-link btn-sm p-0 text-danger" title="Stop"
+                onclick="doControl(this,'${n}','stop')">
+          <i class="bi bi-stop-fill"></i>
+        </button>
+        <small id="status-${n}">${dotHtml(s.status)}</small>
+      </div>
     </div>
     <div class="card-body d-flex flex-column gap-2">
       <p class="mb-0 small text-muted">
@@ -171,14 +181,6 @@ function cardHtml(s) {
         <textarea id="body-${n}" rows="3" class="form-control form-control-sm font-monospace"
                   style="background:#0d1117;border-color:#30363d;color:#e6edf3"
                   placeholder='{"key": "value"}'></textarea>
-      </div>
-      <div class="d-flex gap-2">
-        <button class="btn btn-sm btn-outline-success" onclick="doControl(this,'${n}','start')">
-          <i class="bi bi-play-fill"></i> Start
-        </button>
-        <button class="btn btn-sm btn-outline-danger" onclick="doControl(this,'${n}','stop')">
-          <i class="bi bi-stop-fill"></i> Stop
-        </button>
       </div>
     </div>
     <div id="${rid}" class="d-none">
@@ -337,14 +339,21 @@ async function doTest(name) {
 
 async function doControl(btn, name, action) {
   btn.disabled = true;
+  console.log(`[control] ${action} → ${name}`);
   try {
     const r = await fetch(`/api/services/${name}/${action}`, { method: 'POST' });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
-      alert(`Failed to ${action} ${name}:\n${err.title ?? err.detail ?? JSON.stringify(err)}`);
+      const msg = err.title ?? err.detail ?? JSON.stringify(err);
+      console.error(`[control] ${action} ${name} failed (HTTP ${r.status}):`, err);
+      alert(`Failed to ${action} ${name}:\n${msg}`);
+    } else {
+      const data = await r.json().catch(() => ({}));
+      console.log(`[control] ${action} ${name} →`, data);
     }
     await refresh();
   } catch (e) {
+    console.error(`[control] ${action} ${name} exception:`, e);
     alert(`${action} ${name}: ${e.message}`);
   } finally {
     btn.disabled = false;
