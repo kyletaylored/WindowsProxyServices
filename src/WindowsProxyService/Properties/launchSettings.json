@@ -2,6 +2,7 @@
   "profiles": {
     "WindowsProxyService": {
       "commandName": "Project",
+      "commandLineArgs": "--name *",
       "launchBrowser": true,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
