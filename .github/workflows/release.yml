@@ -384,6 +384,50 @@ jobs:
           Restart-Service 'WindowsSqlService' -Force
           Write-Host "WindowsSqlService restarted with tcp:localhost,1433."
 
+      - name: Diagnose SQL Server connectivity
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "=== SQL Server services ==="
+          Get-Service -Name 'MSSQL*','SQLBrowser' -ErrorAction SilentlyContinue |
+              Select-Object Name, Status, StartType | Format-Table -AutoSize
+
+          Write-Host "=== Registered SQL instances (registry) ==="
+          Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' -Name InstalledInstances -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty InstalledInstances
+
+          Write-Host "=== TCP config for SQLEXPRESS ==="
+          $instanceDir = Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' |
+              Where-Object { $_.PSChildName -match '^MSSQL\d+\.SQLEXPRESS$' } |
+              Select-Object -First 1 -ExpandProperty PSChildName
+          if ($instanceDir) {
+              $tcpPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceDir\MSSQLServer\SuperSocketNetLib\Tcp"
+              Write-Host "Key: $tcpPath"
+              Get-ItemProperty $tcpPath -ErrorAction SilentlyContinue | Select-Object Enabled | Format-List
+              Get-ItemProperty "$tcpPath\IPAll" -ErrorAction SilentlyContinue | Select-Object TcpPort, TcpDynamicPorts | Format-List
+          } else {
+              Write-Host "SQLEXPRESS registry key not found."
+          }
+
+          Write-Host "=== Port 1433 listener ==="
+          netstat -ano | Select-String ':1433'
+
+          Write-Host "=== sqlcmd connection test ==="
+          & sqlcmd -S 'tcp:localhost,1433' -Q 'SELECT @@VERSION' -l 5 2>&1
+
+          Write-Host "=== WindowsSqlService environment registry ==="
+          $envKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\WindowsSqlService\Environment'
+          if (Test-Path $envKey) {
+              Get-ItemProperty $envKey | Format-List
+          } else {
+              Write-Host "Key does not exist."
+          }
+
+          Write-Host "=== WindowsSqlService recent event log ==="
+          Get-WinEvent -LogName Application -MaxEvents 20 -ErrorAction SilentlyContinue |
+              Where-Object { $_.Message -match 'WindowsSql|WpsDemo|SQLEXPRESS' } |
+              Format-List TimeCreated, LevelDisplayName, Message
+
       - name: Wait for services to reach Running state
         shell: pwsh
         run: |
