@@ -27,6 +27,8 @@ packages/
 ## Installer (generated at build time by release.yml)
 installer/Files.wxs
 installer/*.msi
+# Never commit private keys — the public .cer is safe to commit
+installer/*.pfx
 
 ## OS
 .DS_Store

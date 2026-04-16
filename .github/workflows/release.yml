@@ -191,11 +191,66 @@ jobs:
 
           Write-Host "MSI built: installer\$msiName"
 
+      - name: Sign MSI
+        # Skipped gracefully when SIGNING_CERT_PFX is not configured.
+        # Set two repo/org secrets to enable:
+        #   SIGNING_CERT_PFX      – base64-encoded PFX (private + public cert)
+        #   SIGNING_CERT_PASSWORD – password used when the PFX was exported
+        shell: pwsh
+        env:
+          SIGNING_CERT_PFX:      ${{ secrets.SIGNING_CERT_PFX }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+        run: |
+          if (-not $env:SIGNING_CERT_PFX) {
+            Write-Host "SIGNING_CERT_PFX not configured — MSI will be unsigned."
+            exit 0
+          }
+          $ErrorActionPreference = 'Stop'
+          $msiPath = "installer\${{ needs.version.outputs.msi_name }}"
+
+          # Decode PFX to a temp file (never touches the workspace)
+          $pfxPath = Join-Path $env:TEMP "signing.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:SIGNING_CERT_PFX))
+
+          try {
+            # Export the public .cer so it can be bundled with the release download.
+            # The private key stays in the temp PFX and is deleted below.
+            $secPwd = ConvertTo-SecureString $env:SIGNING_CERT_PASSWORD -AsPlainText -Force
+            $cert   = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($pfxPath, $secPwd)
+            [IO.File]::WriteAllBytes(
+              "installer\WindowsProxyServices.cer",
+              $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
+            )
+            Write-Host "Certificate: $($cert.Subject)  valid until $($cert.NotAfter.ToString('yyyy-MM-dd'))"
+
+            # Locate signtool.exe from the Windows SDK (x64 variant)
+            $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
+              -Recurse -Filter signtool.exe |
+              Where-Object { $_.FullName -like '*x64*' } |
+              Sort-Object FullName | Select-Object -Last 1 -ExpandProperty FullName
+            if (-not $signtool) { throw "signtool.exe not found in Windows SDK." }
+
+            & $signtool sign /fd SHA256 /f $pfxPath /p $env:SIGNING_CERT_PASSWORD $msiPath
+            if ($LASTEXITCODE -ne 0) { throw "signtool sign failed (exit $LASTEXITCODE)." }
+
+            & $signtool verify /pa $msiPath
+            if ($LASTEXITCODE -ne 0) { throw "signtool verify failed." }
+
+            Write-Host "Signed and verified: $msiPath"
+          } finally {
+            Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v7
         with:
           name: msi-${{ needs.version.outputs.semver }}
-          path: installer/${{ needs.version.outputs.msi_name }}
+          # WindowsProxyServices.cer is only present when signing is configured;
+          # if-no-files-found: warn avoids failing when it is absent.
+          path: |
+            installer/${{ needs.version.outputs.msi_name }}
+            installer/WindowsProxyServices.cer
+          if-no-files-found: warn
           retention-days: 14
 
 
@@ -217,6 +272,20 @@ jobs:
         with:
           name: msi-${{ needs.version.outputs.semver }}
           path: installer
+
+      - name: Trust signing certificate
+        # Import the public cert so Windows recognises the publisher during install.
+        # Silently skipped if the build was unsigned (no .cer in the artifact).
+        shell: pwsh
+        run: |
+          $cerPath = "installer\WindowsProxyServices.cer"
+          if (Test-Path $cerPath) {
+            Import-Certificate -FilePath $cerPath -CertStoreLocation Cert:\LocalMachine\TrustedPublisher
+            $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cerPath)
+            Write-Host "Imported: $($cert.Subject)"
+          } else {
+            Write-Host "No certificate in artifact — unsigned build, skipping trust step."
+          }
 
       - name: Install MSI
         # /qn  = silent (no UI); WIXUI_EXITDIALOGOPTIONALCHECKBOX=0 suppresses
@@ -453,5 +522,7 @@ jobs:
         with:
           name: "Windows Proxy Services ${{ needs.version.outputs.semver }}"
           generate_release_notes: true
-          fail_on_unmatched_files: true
-          files: installer/${{ needs.version.outputs.msi_name }}
+          fail_on_unmatched_files: false
+          files: |
+            installer/${{ needs.version.outputs.msi_name }}
+            installer/WindowsProxyServices.cer

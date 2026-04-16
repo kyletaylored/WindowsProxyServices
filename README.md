@@ -58,6 +58,14 @@ msiexec /x WindowsProxyServices-1.0.0.msi /quiet
 # or: Apps & Features → Windows Proxy Services → Uninstall
 ```
 
+**Suppress the SmartScreen "Unknown Publisher" warning (one-time per server):**
+
+Each release includes `WindowsProxyServices.cer` alongside the MSI. Import it once as Administrator and Windows will recognise the publisher on all future installs:
+
+```powershell
+Import-Certificate -FilePath WindowsProxyServices.cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher
+```
+
 ### Option B — Visual Studio (local dev)
 
 See [Local Development](#local-development) below.
@@ -462,6 +470,38 @@ version  →  build  →  smoke-test  →  release (tag push only)
 | `release`    | ubuntu  | Downloads the artifact and publishes a GitHub Release with auto-generated release notes                                                                                                                                                                                          |
 
 The Playwright browser test navigates to `http://localhost:5051`, asserts service cards are visible, validates `rum-config.json` is valid JSON, and — when `DD_RUM_APP_ID` is set — asserts `window.DD_RUM` was initialised. The RUM assertion is silently skipped when credentials are not configured.
+
+### Code Signing Setup
+
+The release workflow signs the MSI with a self-signed certificate when two secrets are configured. The MSI is unsigned (but otherwise identical) without them.
+
+| Secret                  | Description                                                 |
+| ----------------------- | ----------------------------------------------------------- |
+| `SIGNING_CERT_PFX`      | Base64-encoded PFX containing the private + public key pair |
+| `SIGNING_CERT_PASSWORD` | Password used when the PFX was exported                     |
+
+Generate the certificate once on any Windows machine (10-year validity):
+
+```powershell
+$pfxPath = "$env:TEMP\signing.pfx"
+
+$cert = New-SelfSignedCertificate `
+  -Type CodeSigning `
+  -Subject "CN=Windows Proxy Services" `
+  -CertStoreLocation Cert:\CurrentUser\My `
+  -NotAfter (Get-Date).AddYears(10) `
+  -HashAlgorithm SHA256
+
+$pwd = ConvertTo-SecureString "your-strong-password" -AsPlainText -Force
+Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $pwd
+
+# Encode as base64 and paste into the SIGNING_CERT_PFX secret
+[Convert]::ToBase64String([IO.File]::ReadAllBytes($pfxPath)) | clip
+
+Remove-Item $pfxPath   # never commit the private key
+```
+
+Add `SIGNING_CERT_PFX` (base64 output) and `SIGNING_CERT_PASSWORD` as repo or org secrets. The CI will then sign every MSI and export `WindowsProxyServices.cer` as a release asset. The same certificate is reused for all releases, so servers only need to import it once.
 
 **Create a release:**
 
