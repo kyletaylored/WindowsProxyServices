@@ -377,6 +377,7 @@ jobs:
         shell: pwsh
         run: |
           $envKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\WindowsSqlService\Environment'
+          if (-not (Test-Path $envKey)) { New-Item -Path $envKey -Force | Out-Null }
           Set-ItemProperty -Path $envKey -Name 'WPS_SQL_CONNECTION_STRING' `
               -Value 'Server=tcp:localhost,1433;Database=WpsDemo;Integrated Security=true;TrustServerCertificate=true;Connect Timeout=5;' `
               -Type String
