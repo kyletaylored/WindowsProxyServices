@@ -47,8 +47,11 @@ jobs:
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
             $raw    = "${{ inputs.version }}"
             $semver = if ($raw) { $raw.TrimStart('v') } else { "0.0.0-dev.${{ github.run_number }}" }
-          } else {
+          } elseif ("${{ github.ref }}".StartsWith('refs/tags/')) {
             $semver = "${{ github.ref_name }}".TrimStart('v')
+          } else {
+            # Branch push (e.g. main) — no tag, use a dev version
+            $semver = "0.0.0-dev.${{ github.run_number }}"
           }
 
           # MSI ProductVersion must be X.Y.Z — strip any pre-release suffix
