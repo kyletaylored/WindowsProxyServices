@@ -277,7 +277,10 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   smoke-test:
     needs: [version, build]
-    runs-on: windows-latest
+    # windows-2022 is pinned here because windows-latest moved to windows-2025
+    # which no longer ships SQL Server Express.  windows-2022 includes
+    # SQL Server 2019 Express (MSSQL$SQLEXPRESS) out of the box.
+    runs-on: windows-2022
     environment:
       name: smoke-test
 
