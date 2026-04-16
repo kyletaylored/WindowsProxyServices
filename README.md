@@ -408,7 +408,7 @@ Edit `C:\Services\WindowsProxyService\wwwroot\rum-config.json` and fill in the r
 
 A dedicated dialog page is shown between the install directory and the ready-to-install screen. Enter App ID, Client Token, select your site from the dropdown (all six Datadog regions), and set an environment name. Leave all fields blank to keep RUM disabled.
 
-![MSI installer RUM configuration dialog with App ID, Client Token, Site, and Environment fields](assets/wps-installer-rum-form.webp)
+![MSI installer RUM configuration dialog with App ID, Client Token, Site, and Environment fields](assets/windows-proxy-services-install.gif)
 
 Values are written to `HKLM\SOFTWARE\WindowsProxyServices\RUM`. On first start, `WindowsDashboardService` reads the registry and regenerates `rum-config.json` automatically.
 
