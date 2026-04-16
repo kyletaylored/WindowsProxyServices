@@ -86,7 +86,22 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: Cache WiX toolset
+        id: cache-wix
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet/tools
+          key: wix-4.0.5
+
       - name: Install WiX Toolset v4
+        if: steps.cache-wix.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           dotnet tool install --global wix --version 4.0.5
@@ -277,10 +292,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   smoke-test:
     needs: [version, build]
-    # windows-2022 is pinned here because windows-latest moved to windows-2025
-    # which no longer ships SQL Server Express.  windows-2022 includes
-    # SQL Server 2019 Express (MSSQL$SQLEXPRESS) out of the box.
-    runs-on: windows-2022
+    runs-on: windows-latest
     environment:
       name: smoke-test
 
@@ -305,37 +317,34 @@ jobs:
             Write-Host "No certificate in artifact — unsigned build, skipping trust step."
           }
 
-      - name: Start SQL Server Express
-        # Named instance resolution (localhost\SQLEXPRESS → TCP port) relies on
-        # SQL Browser over UDP 1434, which is unreliable on CI runners even when
-        # the service is running.  Instead: enable TCP/IP with a static port in
-        # the registry before starting the engine so we can connect via
-        # tcp:localhost,1433 and skip SQL Browser entirely.
+      - name: Install SQL Server Express
+        # Uses the Particular/install-sql-server-action which installs via
+        # Chocolatey and waits (up to 150s) for the instance to be ready.
+        # Much more reliable than downloading the installer ourselves.
+        uses: Particular/install-sql-server-action@main
+        with:
+          catalog: WpsDemo
+          connection-string-env-var: UNUSED_SQL_CONNECTION_STRING
+
+      - name: Enable TCP/IP on port 1433
+        # The choco install leaves SQL Express on a dynamic port.  Pin it to
+        # 1433 so we can use tcp:localhost,1433 in the connection string and
+        # avoid any SQL Browser / named-instance resolution issues.
         shell: pwsh
         run: |
-          $svc = Get-Service -Name 'MSSQL$SQLEXPRESS' -ErrorAction SilentlyContinue
-          if (-not $svc) {
-            Write-Host "MSSQL`$SQLEXPRESS not found — SqlServerCA.wxs will install it during MSI setup."
-            exit 0
-          }
-
-          # Locate the version-specific registry key (e.g. MSSQL15.SQLEXPRESS for 2019)
           $instanceDir = Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' |
               Where-Object { $_.PSChildName -match '^MSSQL\d+\.SQLEXPRESS$' } |
               Select-Object -First 1 -ExpandProperty PSChildName
-
           if ($instanceDir) {
             $tcpPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceDir\MSSQLServer\SuperSocketNetLib\Tcp"
-            Set-ItemProperty -Path $tcpPath          -Name 'Enabled'         -Value 1      -ErrorAction SilentlyContinue
-            Set-ItemProperty -Path "$tcpPath\IPAll"  -Name 'TcpPort'         -Value '1433' -ErrorAction SilentlyContinue
-            Set-ItemProperty -Path "$tcpPath\IPAll"  -Name 'TcpDynamicPorts' -Value ''     -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $tcpPath         -Name 'Enabled'         -Value 1      -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path "$tcpPath\IPAll" -Name 'TcpPort'         -Value '1433' -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path "$tcpPath\IPAll" -Name 'TcpDynamicPorts' -Value ''     -ErrorAction SilentlyContinue
+            Restart-Service 'MSSQL$SQLEXPRESS'
             Write-Host "TCP/IP enabled on port 1433 for $instanceDir."
           } else {
-            Write-Host "Could not locate SQLEXPRESS registry key — TCP config skipped."
+            Write-Host "WARNING: SQLEXPRESS registry key not found — TCP config skipped."
           }
-
-          Start-Service 'MSSQL$SQLEXPRESS'
-          Write-Host "MSSQL`$SQLEXPRESS: $((Get-Service 'MSSQL$SQLEXPRESS').Status)"
 
       - name: Install MSI
         # /qn  = silent (no UI); WIXUI_EXITDIALOGOPTIONALCHECKBOX=0 suppresses
