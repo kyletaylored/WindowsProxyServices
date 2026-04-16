@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  All five proxy Windows services are defined in a single MSI component that
+  All proxy Windows services are defined in a single MSI component that
   owns WindowsProxyService.exe as its KeyPath.
 
   Why one component for all services?
@@ -56,36 +56,7 @@
         </RegistryKey>
 
         <!-- ═══════════════════════════════════════════════════════════════════
-             CatFacts  |  port 5053  |  https://catfact.ninja
-        ════════════════════════════════════════════════════════════════════ -->
-        <ServiceInstall
-          Id="SvcCatFactsInstall"
-          Name="WindowsProxyService.CatFacts"
-          DisplayName="Windows Proxy Service - CatFacts"
-          Description="Proxies requests to the Cat Facts API (no auth required)"
-          Type="ownProcess"
-          Start="auto"
-          ErrorControl="normal"
-          Arguments="--name CatFacts" />
-        <ServiceControl
-          Id="SvcCatFactsStart"
-          Name="WindowsProxyService.CatFacts"
-          Start="install"
-          Wait="no" />
-        <ServiceControl
-          Id="SvcCatFactsStop"
-          Name="WindowsProxyService.CatFacts"
-          Stop="both"
-          Remove="uninstall"
-          Wait="yes" />
-        <RegistryKey Root="HKLM"
-          Key="SYSTEM\CurrentControlSet\Services\WindowsProxyService.CatFacts">
-          <RegistryValue Name="Environment" Type="multiString"
-            Value="DD_SERVICE=windowsproxyservice-catfacts[~]DD_VERSION=$(var.Version)" />
-        </RegistryKey>
-
-        <!-- ═══════════════════════════════════════════════════════════════════
-             JsonPlaceholder  |  port 5054  |  https://jsonplaceholder.typicode.com
+             JsonPlaceholder  |  port 5053  |  https://jsonplaceholder.typicode.com
         ════════════════════════════════════════════════════════════════════ -->
         <ServiceInstall
           Id="SvcJsonPlaceholderInstall"
@@ -114,61 +85,32 @@
         </RegistryKey>
 
         <!-- ═══════════════════════════════════════════════════════════════════
-             DogCeo  |  port 5055  |  https://dog.ceo
+             DatadogDemo  |  port 5054  |  https://datadog-sanity-vercel-demo-app.vercel.app
         ════════════════════════════════════════════════════════════════════ -->
         <ServiceInstall
-          Id="SvcDogCeoInstall"
-          Name="WindowsProxyService.DogCeo"
-          DisplayName="Windows Proxy Service - DogCeo"
-          Description="Proxies requests to the Dog CEO random dog image API (no auth required)"
+          Id="SvcDatadogDemoInstall"
+          Name="WindowsProxyService.DatadogDemo"
+          DisplayName="Windows Proxy Service - DatadogDemo"
+          Description="Proxies requests to the Datadog sanity demo app — health checks, slow queries, distributed traces, and error simulation"
           Type="ownProcess"
           Start="auto"
           ErrorControl="normal"
-          Arguments="--name DogCeo" />
+          Arguments="--name DatadogDemo" />
         <ServiceControl
-          Id="SvcDogCeoStart"
-          Name="WindowsProxyService.DogCeo"
+          Id="SvcDatadogDemoStart"
+          Name="WindowsProxyService.DatadogDemo"
           Start="install"
           Wait="no" />
         <ServiceControl
-          Id="SvcDogCeoStop"
-          Name="WindowsProxyService.DogCeo"
+          Id="SvcDatadogDemoStop"
+          Name="WindowsProxyService.DatadogDemo"
           Stop="both"
           Remove="uninstall"
           Wait="yes" />
         <RegistryKey Root="HKLM"
-          Key="SYSTEM\CurrentControlSet\Services\WindowsProxyService.DogCeo">
+          Key="SYSTEM\CurrentControlSet\Services\WindowsProxyService.DatadogDemo">
           <RegistryValue Name="Environment" Type="multiString"
-            Value="DD_SERVICE=windowsproxyservice-dogceo[~]DD_VERSION=$(var.Version)" />
-        </RegistryKey>
-
-        <!-- ═══════════════════════════════════════════════════════════════════
-             ChuckNorris  |  port 5056  |  https://api.chucknorris.io
-        ════════════════════════════════════════════════════════════════════ -->
-        <ServiceInstall
-          Id="SvcChuckNorrisInstall"
-          Name="WindowsProxyService.ChuckNorris"
-          DisplayName="Windows Proxy Service - ChuckNorris"
-          Description="Proxies requests to the Chuck Norris jokes API (no auth required)"
-          Type="ownProcess"
-          Start="auto"
-          ErrorControl="normal"
-          Arguments="--name ChuckNorris" />
-        <ServiceControl
-          Id="SvcChuckNorrisStart"
-          Name="WindowsProxyService.ChuckNorris"
-          Start="install"
-          Wait="no" />
-        <ServiceControl
-          Id="SvcChuckNorrisStop"
-          Name="WindowsProxyService.ChuckNorris"
-          Stop="both"
-          Remove="uninstall"
-          Wait="yes" />
-        <RegistryKey Root="HKLM"
-          Key="SYSTEM\CurrentControlSet\Services\WindowsProxyService.ChuckNorris">
-          <RegistryValue Name="Environment" Type="multiString"
-            Value="DD_SERVICE=windowsproxyservice-chucknorris[~]DD_VERSION=$(var.Version)" />
+            Value="DD_SERVICE=windowsproxyservice-datadogdemo[~]DD_VERSION=$(var.Version)" />
         </RegistryKey>
 
       </Component>
@@ -213,6 +155,42 @@
           <RegistryValue Name="ClientToken"   Type="string" Value="[DD_RUM_CLIENT_TOKEN]" />
           <RegistryValue Name="Site"          Type="string" Value="[DD_RUM_SITE]"         />
           <RegistryValue Name="Env"           Type="string" Value="[DD_RUM_ENV]"          />
+        </RegistryKey>
+      </Component>
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           SQL Service  |  port 5055  |  sql://localhost\SQLEXPRESS/WpsDemo
+           Exposes a WpsDemo SQL Server database (Products / Orders / Customers)
+           for Datadog DBM and SQL tracing demos.
+           DD_DBM_PROPAGATION_MODE=full enables trace-to-query correlation.
+      ════════════════════════════════════════════════════════════════════ -->
+      <Component Id="CompSqlService" Guid="D4580001-0000-0000-0000-000000000003">
+        <File Id="FileSqlExe"
+              Source="$(var.PublishDir)\WindowsSqlService.exe"
+              KeyPath="yes" />
+        <ServiceInstall
+          Id="SvcSqlInstall"
+          Name="WindowsSqlService"
+          DisplayName="Windows SQL Service"
+          Description="Exposes a WpsDemo SQL Server database for Datadog DBM and SQL tracing demos (http://localhost:5055)"
+          Type="ownProcess"
+          Start="auto"
+          ErrorControl="normal" />
+        <ServiceControl
+          Id="SvcSqlStart"
+          Name="WindowsSqlService"
+          Start="install"
+          Wait="no" />
+        <ServiceControl
+          Id="SvcSqlStop"
+          Name="WindowsSqlService"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
+        <RegistryKey Root="HKLM"
+          Key="SYSTEM\CurrentControlSet\Services\WindowsSqlService">
+          <RegistryValue Name="Environment" Type="multiString"
+            Value="DD_SERVICE=windowssqlservice[~]DD_VERSION=$(var.Version)[~]DD_DBM_PROPAGATION_MODE=full" />
         </RegistryKey>
       </Component>
 

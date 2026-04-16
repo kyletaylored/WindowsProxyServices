@@ -5,8 +5,8 @@ using WindowsProxyService;
 // 1. Parse --name arguments
 //    Supports one or many names:
 //      --name OpenMeteo
-//      --name OpenMeteo CatFacts DogCeo
-//      --name OpenMeteo --name CatFacts
+//      --name OpenMeteo JsonPlaceholder
+//      --name OpenMeteo --name JsonPlaceholder
 //      --name * | --all              (every service in services.json)
 // ---------------------------------------------------------------------------
 var names    = new List<string>();
@@ -33,7 +33,7 @@ if (!startAll && names.Count == 0)
 {
     Console.Error.WriteLine("ERROR: --name <InstanceName> [<InstanceName>...] is required.");
     Console.Error.WriteLine("       Use '--name *' or '--all' to start every service.");
-    Console.Error.WriteLine("       Example: WindowsProxyService.exe --name OpenMeteo CatFacts");
+    Console.Error.WriteLine("       Example: WindowsProxyService.exe --name OpenMeteo JsonPlaceholder");
     return 1;
 }
 

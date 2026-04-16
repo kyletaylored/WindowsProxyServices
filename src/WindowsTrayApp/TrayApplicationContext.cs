@@ -160,7 +160,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         catch
         {
             // Fall back to the known static list so the tray works even when run standalone
-            return ["OpenMeteo", "CatFacts", "JsonPlaceholder", "DogCeo", "ChuckNorris"];
+            return ["OpenMeteo", "JsonPlaceholder", "DatadogDemo"];
         }
     }
 

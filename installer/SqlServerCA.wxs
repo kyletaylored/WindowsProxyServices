@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SqlServerCA.wxs — Optional SQL Server Express installation custom action.
+
+  Behaviour:
+    1. The RegistrySearch checks whether a SQL Server Express instance named
+       SQLEXPRESS already exists.  If it does, the custom action is skipped
+       entirely (Condition on the scheduling entry).
+    2. If SQL Server Express is absent, the deferred custom action runs
+       powershell.exe to download the SQL Server Express installer (~400 MB)
+       and install it with /QS (quiet, shows the Express installer's own
+       progress window).
+    3. Return="ignore" — SQL Server Express installation failure is non-fatal.
+       WindowsSqlService initialises the database at startup with graceful
+       retry, so the service can be started manually once SQL is available.
+
+  Quoting notes (XML → command-line → PowerShell → SQL installer):
+    &quot;       in XML attribute   → "  in the MSI
+    ""           in command-line     → "  after C-runtime parsing (inside "…")
+    '…"…"…'    PS single-quoted    → literal "  (no substitution)
+    "…"          SQL installer arg   → quoted value stripped by its C runtime
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+
+    <!-- ── Detect an existing SQLEXPRESS instance ──────────────────────── -->
+    <Property Id="SQLEXPRESS_INSTALLED">
+      <RegistrySearch Id="SqlExpressSearch"
+        Root="HKLM"
+        Key="SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL"
+        Name="SQLEXPRESS"
+        Type="raw" />
+    </Property>
+
+    <!--
+      Pass the powershell.exe path to the deferred CA via CustomActionData.
+      The CA (type 50 deferred) reads CustomActionData as the EXE path.
+      SetProperty Id must equal the CustomAction Id.
+    -->
+    <SetProperty Id="SQLEXPRESS_PSEXE"
+      Value="[SystemFolder]WindowsPowerShell\v1.0\powershell.exe"
+      Sequence="execute"
+      Before="InstallSqlExpressCA" />
+
+    <!--
+      Deferred custom action — runs as LocalSystem (elevated).
+
+      ExeCommand is the PowerShell argument string baked into the MSI.
+      It performs the following steps inline:
+        1. Belt-and-suspenders check for SQLEXPRESS registry key.
+        2. Download SQL Server Express installer to %TEMP%.
+        3. Run it with /QS (shows the Express installer's own progress UI).
+        4. Remove the downloaded installer.
+
+      XML encoding: &quot; → " at MSI level; "" inside "…" → " after C-runtime
+      parsing; single-quoted PS strings pass " literals to Start-Process.
+    -->
+    <CustomAction Id="InstallSqlExpressCA"
+      Property="SQLEXPRESS_PSEXE"
+      ExeCommand="-NonInteractive -ExecutionPolicy Bypass -Command &quot;if(-not(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' -Name SQLEXPRESS -EA Ignore)){$d=[IO.Path]::Combine($env:TEMP,'sqlexpr_wps.exe');[Net.ServicePointManager]::SecurityProtocol='Tls12';(New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/p/?LinkID=2216019',$d);Start-Process $d '/QS /ACTION=Install /FEATURES=SQLEngine /INSTANCENAME=SQLEXPRESS /SQLSVCACCOUNT=&quot;&quot;NT AUTHORITY\SYSTEM&quot;&quot; /SQLSYSADMINACCOUNTS=&quot;&quot;BUILTIN\Administrators&quot;&quot; /AGTSVCSTARTUPTYPE=Disabled /BROWSERSVCSTARTUPTYPE=Automatic /IACCEPTSQLSERVERLICENSETERMS' -Wait;Remove-Item $d -EA Ignore}&quot;"
+      Execute="deferred"
+      Impersonate="no"
+      Return="ignore" />
+
+    <!--
+      Schedule the custom action after all files are installed so the MSI
+      components are available, then SQL Express is in place before the
+      WindowsSqlService is started.
+
+      Condition: skip if SQLEXPRESS is already registered OR during uninstall.
+    -->
+    <InstallExecuteSequence>
+      <Custom Action="InstallSqlExpressCA"
+        After="InstallFiles"
+        Condition="NOT SQLEXPRESS_INSTALLED AND NOT REMOVE" />
+    </InstallExecuteSequence>
+
+  </Fragment>
+</Wix>
