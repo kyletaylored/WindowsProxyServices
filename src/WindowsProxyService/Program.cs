@@ -57,9 +57,17 @@ if (allInstances is null || allInstances.Count == 0)
     return 1;
 }
 
+// Entries whose ProxyUrl is not an HTTP/HTTPS address (e.g. SqlService uses
+// "sql://...") are listed in services.json only so the dashboard can enumerate
+// them.  They must not be started as YARP proxies.
+var proxyInstances = allInstances
+    .Where(x => x.ProxyUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+             || x.ProxyUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+    .ToList();
+
 var configs = startAll
-    ? allInstances
-    : allInstances
+    ? proxyInstances
+    : proxyInstances
         .Where(x => names.Contains(x.InstanceName, StringComparer.OrdinalIgnoreCase))
         .ToList();
 
@@ -70,7 +78,7 @@ var missing = names
 if (missing.Count > 0)
 {
     Console.Error.WriteLine($"ERROR: Unknown service name(s): {string.Join(", ", missing)}");
-    Console.Error.WriteLine($"       Available: {string.Join(", ", allInstances.Select(x => x.InstanceName))}");
+    Console.Error.WriteLine($"       Available: {string.Join(", ", proxyInstances.Select(x => x.InstanceName))}");
     return 1;
 }
 

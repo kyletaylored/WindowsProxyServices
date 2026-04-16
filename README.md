@@ -38,7 +38,7 @@ rules.toml                     Datadog Workload Selection rules (compile before 
 Download the latest `WindowsProxyServices-<version>.msi` from the [Releases](https://github.com/kyletaylored/WindowsProxyServices/releases) page and run it. The installer:
 
 - Copies all binaries to `C:\Services\WindowsProxyService\` (configurable in the GUI)
-- Registers and auto-starts all five proxy services plus the dashboard service
+- Registers and auto-starts all proxy services, the SQL service, and the dashboard service
 - Creates a **Start Menu shortcut** for the tray app
 - Adds the tray app to the **All Users Startup folder** so it launches automatically for every user who logs in
 - Offers a **"Launch tray app"** checkbox on the final screen (checked by default) to start it immediately after install
@@ -90,8 +90,11 @@ The proxy service supports starting one or multiple instances in a single proces
 # Terminal 1 — dashboard (http://localhost:5051)
 dotnet run --project src/WindowsDashboardService
 
-# Terminal 2 — all five proxy instances in one process
+# Terminal 2 — all three proxy instances in one process (OpenMeteo, JsonPlaceholder, DatadogDemo)
 dotnet run --project src/WindowsProxyService -- --all
+
+# Terminal 3 — SQL service (http://localhost:5055)
+dotnet run --project src/WindowsSqlService
 
 # Optional — tray app (separate window, needs dashboard running)
 dotnet run --project src/WindowsTrayApp
@@ -114,18 +117,18 @@ Open [http://localhost:5051](http://localhost:5051) to access the dashboard.
 | `--name OpenMeteo`                 | Start one instance                             |
 | `--name OpenMeteo JsonPlaceholder`        | Start two instances in one process             |
 | `--name OpenMeteo --name JsonPlaceholder` | Same, flags repeated                           |
-| `--name *` or `--all`              | Start every service defined in `services.json` |
+| `--name *` or `--all`              | Start all HTTP proxy instances (non-proxy entries such as `SqlService` are skipped) |
 
 ### Running from Visual Studio
 
-**Quickest setup — all services in two processes:**
+**Quickest setup — all services in three processes:**
 
 1. Open `WindowsProxyServices.sln`.
 2. Right-click `WindowsProxyService` → **Properties** → **Debug** → **General** → **Open debug launch profiles UI**.
 3. Set **Command line arguments** to `--all`.
 4. Right-click the **Solution** → **Properties** → **Common Properties** → **Startup Project** → **Multiple Startup Projects**.
-5. Set `WindowsDashboardService` and `WindowsProxyService` to **Start**.
-6. Press **F5** — the dashboard starts on port 5051 and all three proxies start on ports 5052–5054.
+5. Set `WindowsDashboardService`, `WindowsProxyService`, and `WindowsSqlService` to **Start**.
+6. Press **F5** — the dashboard starts on port 5051, all three proxies start on ports 5052–5054, and the SQL service starts on port 5055.
 
 **Start a single proxy instance (e.g. for focused debugging):**
 
@@ -220,7 +223,7 @@ Defines all proxy instances. Located at `src/WindowsProxyService/services.json` 
   },
   {
     "InstanceName": "SqlService",
-    "ServiceDescription": "Exposes a WpsDemo SQL Server database for Datadog DBM and SQL tracing demos",
+    "ServiceDescription": "Exposes a WpsDemo SQL Server database (Products / Orders / Customers) for Datadog DBM and SQL tracing demos",
     "Host": "+",
     "Port": 5055,
     "ProxyUrl": "sql://localhost\\SQLEXPRESS/WpsDemo",
@@ -281,6 +284,7 @@ All proxy instances share one binary, so `process.executable` matches all of the
 | `process.executable` | `WindowsProxyService.exe`     | All proxy instances            |
 | `process.executable` | `*ProxyService.exe`           | All proxy instances (wildcard) |
 | `dotnet.dll`         | `WindowsProxyService.dll`     | All proxy instances (by DLL)   |
+| `process.executable` | `WindowsSqlService.exe`       | SQL service only               |
 | `process.executable` | `WindowsDashboardService.exe` | Dashboard service only         |
 
 ### Example rules (see rules.toml for full file)
@@ -322,13 +326,13 @@ Open [http://localhost:5051](http://localhost:5051) — click **Test** on any ca
 
 ### Using PowerShell
 
-**Status endpoint (each proxy instance):**
+**Status endpoint (all services):**
 
 ```powershell
-Invoke-RestMethod http://localhost:5052/api/status
-Invoke-RestMethod http://localhost:5053/api/status
-Invoke-RestMethod http://localhost:5054/api/status
-Invoke-RestMethod http://localhost:5055/api/status
+Invoke-RestMethod http://localhost:5052/api/status   # OpenMeteo proxy
+Invoke-RestMethod http://localhost:5053/api/status   # JsonPlaceholder proxy
+Invoke-RestMethod http://localhost:5054/api/status   # DatadogDemo proxy
+Invoke-RestMethod http://localhost:5055/api/status   # SqlService (database + product count)
 ```
 
 **WindowsProxyService.OpenMeteo — port 5052**
