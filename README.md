@@ -6,11 +6,13 @@ A single compiled binary (`WindowsProxyService.exe`) is deployed as multiple Win
 
 ## What's Included
 
-| Component | Type | Port | Purpose |
-|-----------|------|------|---------|
-| `WindowsProxyService` | Windows Service (×5) | 5052–5056 | YARP reverse proxies — one per upstream API |
-| `WindowsDashboardService` | Windows Service | 5051 | Bootstrap 5 web UI — status, test requests, start/stop |
-| `WindowsTrayApp` | Desktop App | — | System tray icon — opens dashboard, start/stop shortcuts |
+| Component                 | Type                 | Port      | Purpose                                                  |
+| ------------------------- | -------------------- | --------- | -------------------------------------------------------- |
+| `WindowsProxyService`     | Windows Service (×5) | 5052–5056 | YARP reverse proxies — one per upstream API              |
+| `WindowsDashboardService` | Windows Service      | 5051      | Bootstrap 5 web UI — status, test requests, start/stop   |
+| `WindowsTrayApp`          | Desktop App          | —         | System tray icon — opens dashboard, start/stop shortcuts |
+
+![Windows Proxy Services dashboard showing live service cards and test request controls](assets/wps-dashboard.webp)
 
 ## Project Structure
 
@@ -24,10 +26,6 @@ installer/
   Product.wxs                  WiX v4 MSI package definition
   Services.wxs                 Windows service + shortcut registrations
   License.rtf                  Installer license/disclaimer
-scripts/
-  deploy.ps1                   Full deploy: publish → register → rules → start
-  install-services.ps1         Register proxy + dashboard services (after manual publish)
-  uninstall-services.ps1       Stop and remove all services
 rules.toml                     Datadog Workload Selection rules (compile before use)
 ```
 
@@ -60,16 +58,7 @@ msiexec /x WindowsProxyServices-1.0.0.msi /quiet
 # or: Apps & Features → Windows Proxy Services → Uninstall
 ```
 
-### Option B — Deploy Script
-
-Run `deploy.ps1` from an elevated terminal at the repo root for a manual one-shot deploy of all services. See [Scripts](#scripts) below for full details.
-
-```powershell
-# From repo root, run as Administrator:
-.\scripts\deploy.ps1
-```
-
-### Option C — Visual Studio (local dev)
+### Option B — Visual Studio (local dev)
 
 See [Local Development](#local-development) below.
 
@@ -110,12 +99,12 @@ Open [http://localhost:5051](http://localhost:5051) to access the dashboard.
 
 **`--name` argument forms:**
 
-| Form | Behaviour |
-|------|-----------|
-| `--name OpenMeteo` | Start one instance |
-| `--name OpenMeteo CatFacts` | Start two instances in one process |
-| `--name OpenMeteo --name CatFacts` | Same, flags repeated |
-| `--name *` or `--all` | Start every service defined in `services.json` |
+| Form                               | Behaviour                                      |
+| ---------------------------------- | ---------------------------------------------- |
+| `--name OpenMeteo`                 | Start one instance                             |
+| `--name OpenMeteo CatFacts`        | Start two instances in one process             |
+| `--name OpenMeteo --name CatFacts` | Same, flags repeated                           |
+| `--name *` or `--all`              | Start every service defined in `services.json` |
 
 ### Running from Visual Studio
 
@@ -138,77 +127,6 @@ Add `WindowsTrayApp` to the Multiple Startup Projects list, or start it separate
 
 ---
 
-## Scripts
-
-All scripts require an **Administrator** PowerShell session. Run them from the repo root.
-
-### `deploy.ps1` — Full deploy (all services)
-
-Handles everything in order: stop → publish → register → set DD vars → compile rules → start.
-The same command works for first-time setup and every subsequent update.  Deploys all three components: the five proxy services, the dashboard service, and the tray app executable.
-
-```powershell
-# Default deploy path (C:\Services\WindowsProxyService):
-.\scripts\deploy.ps1
-
-# Custom deploy or tool paths:
-.\scripts\deploy.ps1 -DeployPath "D:\MyServices" -RulesToolPath "D:\tools"
-```
-
-**Parameters:**
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `-DeployPath` | `C:\Services\WindowsProxyService` | Where binaries are published and services run from |
-| `-ProjectPath` | `src\WindowsProxyService\WindowsProxyService.csproj` | Proxy service project to publish |
-| `-DashboardProjectPath` | `src\WindowsDashboardService\WindowsDashboardService.csproj` | Dashboard service project to publish |
-| `-TrayAppProjectPath` | `src\WindowsTrayApp\WindowsTrayApp.csproj` | Tray app project to publish |
-| `-RulesToolPath` | `C:\tools` | Where `dd-rules-converter.exe` is installed (downloaded automatically if missing) |
-| `-RulesToolVersion` | `v0.1.1` | Version to download if the tool is absent |
-
-**What it does:**
-
-1. Stops any running proxy service instances and `WindowsDashboardService` (so the `.exe` files are unlocked for publish)
-2. `dotnet publish` — Release, win-x64, self-contained — all three projects into `-DeployPath`
-3. Registers each proxy instance and `WindowsDashboardService` with `sc.exe` (first run only; skipped if already registered). `WindowsTrayApp` is not a service and is not registered.
-4. Writes `DD_SERVICE` and `DD_VERSION` to each proxy service's registry environment block
-5. Downloads `dd-rules-converter.exe` if not present in `-RulesToolPath`
-6. Compiles `rules.toml` → `C:\ProgramData\Datadog\managed\rc-orgwide-wls-policy.bin`
-7. Starts all proxy service instances and `WindowsDashboardService`
-
-### `install-services.ps1` — Register services after a manual publish
-
-Use this when you've already run `dotnet publish` manually and just need to register the Windows services.
-
-```powershell
-# After publishing to the default path:
-.\scripts\install-services.ps1
-
-# Custom publish output path:
-.\scripts\install-services.ps1 -PublishPath "D:\MyServices\WindowsProxyService"
-```
-
-Reads `services.json` from `-PublishPath`, creates each `WindowsProxyService.<InstanceName>` service and `WindowsDashboardService` with `sc.exe`, and writes `DD_SERVICE`/`DD_VERSION` to each proxy service's registry. Skips any service that is already registered.
-
-After running, start the services:
-
-```powershell
-Get-Service WindowsProxyService.*, WindowsDashboardService | Start-Service
-```
-
-### `uninstall-services.ps1` — Stop and remove all services
-
-```powershell
-.\scripts\uninstall-services.ps1
-
-# Custom path:
-.\scripts\uninstall-services.ps1 -PublishPath "D:\MyServices\WindowsProxyService"
-```
-
-Reads `services.json`, stops and deletes each proxy service instance, then stops and deletes `WindowsDashboardService`. Does not touch the deployed files.
-
----
-
 ## Dashboard
 
 The **Windows Dashboard Service** runs at [http://localhost:5051](http://localhost:5051) and provides:
@@ -222,13 +140,13 @@ The dashboard is itself a Windows service (`WindowsDashboardService`) so it star
 
 **REST API (used by the dashboard UI and tray app):**
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/services` | List all services with status, port, upstream URL |
-| `POST` | `/api/services/{name}/test` | Fire a GET request through the named proxy; optional body `{"path":"/custom"}` |
-| `POST` | `/api/services/{name}/start` | Start the named Windows service |
-| `POST` | `/api/services/{name}/stop` | Stop the named Windows service |
-| `POST` | `/api/custom-request` | Fire a GET or POST to any URL; body: `{"url":"…","method":"GET\|POST","body":"…"}` |
+| Method | Path                         | Description                                                                        |
+| ------ | ---------------------------- | ---------------------------------------------------------------------------------- |
+| `GET`  | `/api/services`              | List all services with status, port, upstream URL                                  |
+| `POST` | `/api/services/{name}/test`  | Fire a GET request through the named proxy; optional body `{"path":"/custom"}`     |
+| `POST` | `/api/services/{name}/start` | Start the named Windows service                                                    |
+| `POST` | `/api/services/{name}/stop`  | Stop the named Windows service                                                     |
+| `POST` | `/api/custom-request`        | Fire a GET or POST to any URL; body: `{"url":"…","method":"GET\|POST","body":"…"}` |
 
 Example:
 
@@ -250,9 +168,11 @@ Invoke-RestMethod -Method Post http://localhost:5051/api/services/DogCeo/stop
 - **Double-click** the icon → opens the dashboard in your default browser
 - **Right-click** → context menu:
   - **Open Dashboard** — opens [http://localhost:5051](http://localhost:5051)
-  - **Start All / Stop All** — controls all proxy services at once *(admin only)*
-  - Per-service **Start / Stop** sub-menus (status dot `●`/`○` updates when you open the menu) *(admin only)*
+  - **Start All / Stop All** — controls all proxy services at once _(admin only)_
+  - Per-service **Start / Stop** sub-menus (status dot `●`/`○` updates when you open the menu) _(admin only)_
   - **Exit**
+
+![Windows Proxy Services system tray context menu showing service start/stop controls](assets/wps-menu-tray.webp)
 
 Start/Stop controls are **disabled for non-admin users**. Any user can open the dashboard and view service status; only administrators can start or stop services. The tray app delegates start/stop to the dashboard API, so it needs `WindowsDashboardService` to be running. If the dashboard is unreachable it shows a warning message.
 
@@ -304,12 +224,12 @@ Defines all proxy instances. Located at `src/WindowsProxyService/services.json` 
 ]
 ```
 
-| Field | Description |
-|-------|-------------|
+| Field          | Description                                                                                                                                                           |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `InstanceName` | Matches the `--name` value. Windows Service name is `WindowsProxyService.<InstanceName>`. Pass multiple names or `--all` to start more than one instance per process. |
-| `Host` | `+` listens on all interfaces (Kestrel wildcard). |
-| `Port` | Port this instance binds to. |
-| `ProxyUrl` | Upstream base URL. All incoming paths and query strings are forwarded. |
+| `Host`         | `+` listens on all interfaces (Kestrel wildcard).                                                                                                                     |
+| `Port`         | Port this instance binds to.                                                                                                                                          |
+| `ProxyUrl`     | Upstream base URL. All incoming paths and query strings are forwarded.                                                                                                |
 
 ---
 
@@ -325,7 +245,7 @@ This project exists to test Datadog's **host-level SSI auto-instrumentation** fo
 $p = Start-Process -Wait -PassThru msiexec -ArgumentList '/qn /i "https://windows-agent.datadoghq.com/datadog-agent-7-latest.amd64.msi" /log C:\Windows\SystemTemp\install-datadog.log APIKEY="<YOUR_API_KEY>" SITE="datadoghq.com" DD_APM_INSTRUMENTATION_ENABLED="host" DD_APM_INSTRUMENTATION_LIBRARIES="dotnet:3"'
 ```
 
-2. Install the rule compiler (or let `deploy.ps1` download it automatically):
+2. Install the rule compiler:
 
 ```powershell
 Invoke-WebRequest -Uri "https://github.com/DataDog/dd-policy-engine/releases/download/v0.1.1/dd-rules-converter-win-x64.zip" -OutFile "dd-rules-converter.zip"
@@ -350,12 +270,12 @@ Get-Service WindowsProxyService.* | Restart-Service
 
 All proxy instances share one binary, so `process.executable` matches all of them at once. Use `dotnet.dll` or a naming convention for per-instance targeting.
 
-| Selector | Value | Matches |
-|----------|-------|---------|
-| `process.executable` | `WindowsProxyService.exe` | All proxy instances |
-| `process.executable` | `*ProxyService.exe` | All proxy instances (wildcard) |
-| `dotnet.dll` | `WindowsProxyService.dll` | All proxy instances (by DLL) |
-| `process.executable` | `WindowsDashboardService.exe` | Dashboard service only |
+| Selector             | Value                         | Matches                        |
+| -------------------- | ----------------------------- | ------------------------------ |
+| `process.executable` | `WindowsProxyService.exe`     | All proxy instances            |
+| `process.executable` | `*ProxyService.exe`           | All proxy instances (wildcard) |
+| `dotnet.dll`         | `WindowsProxyService.dll`     | All proxy instances (by DLL)   |
+| `process.executable` | `WindowsDashboardService.exe` | Dashboard service only         |
 
 ### Example rules (see rules.toml for full file)
 
@@ -464,21 +384,23 @@ Edit `C:\Services\WindowsProxyService\wwwroot\rum-config.json` and fill in the r
 
 ```json
 {
-  "applicationId":           "aea2638b-...",
-  "clientToken":             "pub35af...",
-  "site":                    "us3.datadoghq.com",
-  "service":                 "windows-proxy-services",
-  "env":                     "prod",
-  "version":                 "1.2.3",
-  "sessionSampleRate":       100,
+  "applicationId": "aea2638b-...",
+  "clientToken": "pub35af...",
+  "site": "us3.datadoghq.com",
+  "service": "windows-proxy-services",
+  "env": "prod",
+  "version": "1.2.3",
+  "sessionSampleRate": 100,
   "sessionReplaySampleRate": 20,
-  "allowedTracingUrls":      ["http://localhost"]
+  "allowedTracingUrls": ["http://localhost"]
 }
 ```
 
 **2 — MSI installer dialog (GUI install)**
 
 A dedicated dialog page is shown between the install directory and the ready-to-install screen. Enter App ID, Client Token, select your site from the dropdown (all six Datadog regions), and set an environment name. Leave all fields blank to keep RUM disabled.
+
+![MSI installer RUM configuration dialog with App ID, Client Token, Site, and Environment fields](assets/wps-installer-rum-form.webp)
 
 Values are written to `HKLM\SOFTWARE\WindowsProxyServices\RUM`. On first start, `WindowsDashboardService` reads the registry and regenerates `rum-config.json` automatically.
 
@@ -498,12 +420,12 @@ msiexec /i WindowsProxyServices.msi /quiet `
 
 To exercise the RUM code path in the smoke-test job, set the following in your repo/org settings. The release workflow passes them as `msiexec` properties during the silent install, following the exact same registry path as an interactive GUI install:
 
-| Name | Type | Description |
-|------|------|-------------|
-| `DD_RUM_APP_ID` | Secret | RUM application ID |
-| `DD_RUM_CLIENT_TOKEN` | Secret | RUM client token |
-| `DD_RUM_SITE` | Variable | Datadog site (e.g. `us3.datadoghq.com`) — defaults to `datadoghq.com` |
-| `DD_RUM_ENV` | Variable | Environment name — defaults to `ci` |
+| Name                  | Type     | Description                                                           |
+| --------------------- | -------- | --------------------------------------------------------------------- |
+| `DD_RUM_APP_ID`       | Secret   | RUM application ID                                                    |
+| `DD_RUM_CLIENT_TOKEN` | Secret   | RUM client token                                                      |
+| `DD_RUM_SITE`         | Variable | Datadog site (e.g. `us3.datadoghq.com`) — defaults to `datadoghq.com` |
+| `DD_RUM_ENV`          | Variable | Environment name — defaults to `ci`                                   |
 
 If `DD_RUM_APP_ID` is not set, the installer runs without RUM and the `window.DD_RUM` check in the Playwright smoke test is skipped rather than failed.
 
@@ -511,14 +433,14 @@ If `DD_RUM_APP_ID` is not set, the installer runs without RUM and the `window.DD
 
 ### Supported sites
 
-| Dropdown label | `site` value |
-|---|---|
-| US1 | `datadoghq.com` |
-| US3 | `us3.datadoghq.com` |
-| US5 | `us5.datadoghq.com` |
-| EU1 | `datadoghq.eu` |
-| AP1 | `ap1.datadoghq.com` |
-| US1-FED | `ddog-gov.com` |
+| Dropdown label | `site` value        |
+| -------------- | ------------------- |
+| US1            | `datadoghq.com`     |
+| US3            | `us3.datadoghq.com` |
+| US5            | `us5.datadoghq.com` |
+| EU1            | `datadoghq.eu`      |
+| AP1            | `ap1.datadoghq.com` |
+| US1-FED        | `ddog-gov.com`      |
 
 ---
 
@@ -532,12 +454,12 @@ The release workflow (`.github/workflows/release.yml`) runs automatically on a s
 version  →  build  →  smoke-test  →  release (tag push only)
 ```
 
-| Job | Runner | What it does |
-|-----|--------|--------------|
-| `version` | ubuntu | Resolves semver and MSI version strings; exports them as job outputs |
-| `build` | windows | `dotnet publish` all three projects, generates `Files.wxs`, builds the MSI, uploads it as a workflow artifact |
+| Job          | Runner  | What it does                                                                                                                                                                                                                                                                     |
+| ------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`    | ubuntu  | Resolves semver and MSI version strings; exports them as job outputs                                                                                                                                                                                                             |
+| `build`      | windows | `dotnet publish` all three projects, generates `Files.wxs`, builds the MSI, uploads it as a workflow artifact                                                                                                                                                                    |
 | `smoke-test` | windows | Installs the MSI silently (optionally passing `DD_RUM_*` secrets as `msiexec` properties), polls all six services until `Running`, probes each HTTP endpoint, runs a headless Playwright browser test against the dashboard, then uninstalls. Uploads installer logs on failure. |
-| `release` | ubuntu | Downloads the artifact and publishes a GitHub Release with auto-generated release notes |
+| `release`    | ubuntu  | Downloads the artifact and publishes a GitHub Release with auto-generated release notes                                                                                                                                                                                          |
 
 The Playwright browser test navigates to `http://localhost:5051`, asserts service cards are visible, validates `rum-config.json` is valid JSON, and — when `DD_RUM_APP_ID` is set — asserts `window.DD_RUM` was initialised. The RUM assertion is silently skipped when credentials are not configured.
 
@@ -555,14 +477,14 @@ Go to **Actions → Release → Run workflow** and optionally enter a version st
 
 ## Windows Service Names
 
-| Service Name | Port | Upstream |
-|---|---|---|
-| `WindowsProxyService.OpenMeteo` | 5052 | https://api.open-meteo.com |
-| `WindowsProxyService.CatFacts` | 5053 | https://catfact.ninja |
+| Service Name                          | Port | Upstream                             |
+| ------------------------------------- | ---- | ------------------------------------ |
+| `WindowsProxyService.OpenMeteo`       | 5052 | https://api.open-meteo.com           |
+| `WindowsProxyService.CatFacts`        | 5053 | https://catfact.ninja                |
 | `WindowsProxyService.JsonPlaceholder` | 5054 | https://jsonplaceholder.typicode.com |
-| `WindowsProxyService.DogCeo` | 5055 | https://dog.ceo |
-| `WindowsProxyService.ChuckNorris` | 5056 | https://api.chucknorris.io |
-| `WindowsDashboardService` | 5051 | *(serves the local dashboard UI)* |
+| `WindowsProxyService.DogCeo`          | 5055 | https://dog.ceo                      |
+| `WindowsProxyService.ChuckNorris`     | 5056 | https://api.chucknorris.io           |
+| `WindowsDashboardService`             | 5051 | _(serves the local dashboard UI)_    |
 
 ## Log Format
 
