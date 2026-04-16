@@ -294,15 +294,19 @@ jobs:
           }
 
       - name: Start SQL Server Express
-        # The windows-latest runner ships with SQL Server Express but leaves its
-        # service stopped by default.  Start it before the MSI so WindowsSqlService
-        # can connect immediately on first boot.
+        # The windows-latest runner ships with SQL Server Express but leaves both
+        # the engine and SQL Browser stopped.  SQL Browser must run first — it is
+        # what resolves the named instance (localhost\SQLEXPRESS) to a TCP port.
+        # Without it every connection attempt fails with error 26.
         shell: pwsh
         run: |
           $svc = Get-Service -Name 'MSSQL$SQLEXPRESS' -ErrorAction SilentlyContinue
           if ($svc) {
+            # Browser resolves named-instance → port; start it before the engine.
+            Set-Service -Name 'SQLBrowser' -StartupType Automatic -ErrorAction SilentlyContinue
+            Start-Service 'SQLBrowser' -ErrorAction SilentlyContinue
             Start-Service 'MSSQL$SQLEXPRESS'
-            Write-Host "SQL Server Express started."
+            Write-Host "SQL Server Express + SQL Browser started."
           } else {
             Write-Host "MSSQL`$SQLEXPRESS not found — SqlServerCA.wxs will install it during MSI setup."
           }
