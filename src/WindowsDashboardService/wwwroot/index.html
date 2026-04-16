@@ -62,9 +62,45 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 const POLL_MS = 5000;
-const EMOJI   = {
-  OpenMeteo: '🌤', CatFacts: '🐱', JsonPlaceholder: '📋',
-  DogCeo: '🐶', ChuckNorris: '💪',
+const EMOJI = {
+  OpenMeteo: '🌤', JsonPlaceholder: '📋', DatadogDemo: '🐶', SqlService: '🗄',
+};
+
+// Known endpoint presets per service.
+// Each entry: { label, method, path } — path=null means "Custom (free-form)".
+const PRESETS = {
+  OpenMeteo: [
+    { label: 'Current weather — NYC',          method: 'GET', path: '/v1/forecast?latitude=40.71&longitude=-74.01&current_weather=true' },
+    { label: 'Hourly temp — Dallas (3 days)',   method: 'GET', path: '/v1/forecast?latitude=32.78&longitude=-96.80&hourly=temperature_2m,windspeed_10m&forecast_days=3&timezone=America%2FChicago' },
+    { label: 'Daily forecast — San Francisco',  method: 'GET', path: '/v1/forecast?latitude=37.77&longitude=-122.42&daily=temperature_2m_max,temperature_2m_min&forecast_days=7&timezone=America%2FLos_Angeles' },
+    { label: 'Custom…', method: 'GET', path: null },
+  ],
+  JsonPlaceholder: [
+    { label: 'GET  /todos/1',   method: 'GET',  path: '/todos/1' },
+    { label: 'GET  /posts',     method: 'GET',  path: '/posts' },
+    { label: 'GET  /posts/1',   method: 'GET',  path: '/posts/1' },
+    { label: 'GET  /users',     method: 'GET',  path: '/users' },
+    { label: 'POST /posts',     method: 'POST', path: '/posts' },
+    { label: 'Custom…', method: 'GET', path: null },
+  ],
+  DatadogDemo: [
+    { label: 'GET  /api/lab/health',           method: 'GET',  path: '/api/lab/health' },
+    { label: 'GET  /api/lab/slow-query (3s)',  method: 'GET',  path: '/api/lab/slow-query?delay=3000' },
+    { label: 'GET  /api/lab/chain',            method: 'GET',  path: '/api/lab/chain' },
+    { label: 'GET  /api/lab/handled-error',    method: 'GET',  path: '/api/lab/handled-error' },
+    { label: 'GET  /api/lab/runtime-metrics',  method: 'GET',  path: '/api/lab/runtime-metrics' },
+    { label: 'POST /api/lab/log-burst',        method: 'POST', path: '/api/lab/log-burst' },
+    { label: 'Custom…', method: 'GET', path: null },
+  ],
+  SqlService: [
+    { label: 'GET  /api/status',                 method: 'GET',  path: '/api/status' },
+    { label: 'GET  /api/products',               method: 'GET',  path: '/api/products' },
+    { label: 'GET  /api/orders',                 method: 'GET',  path: '/api/orders' },
+    { label: 'GET  /api/reports/summary',        method: 'GET',  path: '/api/reports/summary' },
+    { label: 'GET  /api/customers/1/orders',     method: 'GET',  path: '/api/customers/1/orders' },
+    { label: 'POST /api/orders',                 method: 'POST', path: '/api/orders' },
+    { label: 'Custom…', method: 'GET', path: null },
+  ],
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,15 +111,53 @@ function dotHtml(status) {
 }
 
 function cardHtml(s) {
-  const emoji = EMOJI[s.instanceName] ?? '🔌';
-  const rid   = `r-${s.instanceName}`;
-  const esc   = v => v.replace(/"/g, '&quot;');
+  const emoji   = EMOJI[s.instanceName] ?? '🔌';
+  const n       = s.instanceName;
+  const rid     = `r-${n}`;
+  const esc     = v => v.replace(/"/g, '&quot;');
+  const presets = PRESETS[n] ?? null;
+  const getOnly = n === 'OpenMeteo'; // GET-only upstream API
+
+  // Preset dropdown — only for services with a known endpoint list
+  const presetRow = presets ? `
+      <select id="preset-${n}" class="form-select form-select-sm font-monospace"
+              style="background-color:#0d1117;border-color:#30363d;color:#e6edf3"
+              onchange="applyPreset('${n}')">
+        ${presets.map(o => `<option value="${esc(o.path ?? '')}|${o.method}">${esc(o.label)}</option>`).join('')}
+      </select>` : '';
+
+  // Method selector — fixed GET label for OpenMeteo, GET/POST dropdown for others
+  const methodCtrl = getOnly
+    ? `<span class="input-group-text font-monospace"
+             style="background-color:#0d1117;border-color:#30363d;color:#6e7681;min-width:70px;justify-content:center;font-size:.8rem">GET</span>`
+    : `<select id="method-${n}" class="form-select font-monospace"
+               style="max-width:80px;background-color:#0d1117;border-color:#30363d;color:#e6edf3;font-size:.8rem"
+               onchange="toggleBody('${n}')">
+         <option>GET</option><option>POST</option>
+       </select>`;
+
+  // Path input is read-only when a named preset is active; editable for Custom
+  const readOnly = presets && presets[0].path ? 'readonly style="background-color:#0d1117;border-color:#30363d;color:#8b949e"'
+                                               : 'style="background-color:#0d1117;border-color:#30363d;color:#e6edf3"';
+
   return `
-<div class="col-12 col-md-6 col-xxl-4">
+<div class="col-12 col-sm-6 col-lg-3">
   <div class="card h-100">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <span class="fw-semibold">${emoji} ${s.instanceName}</span>
-      <small id="status-${s.instanceName}">${dotHtml(s.status)}</small>
+      <span class="fw-semibold">${emoji} ${n}</span>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-success btn-sm py-0 px-1 lh-1" title="Start"
+                style="font-size:.75rem"
+                onclick="doControl(this,'${n}','start')">
+          <i class="bi bi-play-fill"></i>
+        </button>
+        <button class="btn btn-outline-danger btn-sm py-0 px-1 lh-1" title="Stop"
+                style="font-size:.75rem"
+                onclick="doControl(this,'${n}','stop')">
+          <i class="bi bi-stop-fill"></i>
+        </button>
+        <small id="status-${n}" class="d-flex align-items-center">${dotHtml(s.status)}</small>
+      </div>
     </div>
     <div class="card-body d-flex flex-column gap-2">
       <p class="mb-0 small text-muted">
@@ -92,29 +166,23 @@ function cardHtml(s) {
         <i class="bi bi-hdd-network me-1"></i>localhost:<strong>${s.port}</strong>
       </p>
       <p class="mb-1 small text-secondary flex-grow-1">${s.serviceDescription}</p>
+      ${presetRow}
       <div class="input-group input-group-sm">
-        <span class="input-group-text" style="background:#0d1117;border-color:#30363d;color:#8b949e">
-          <i class="bi bi-link-45deg"></i>
-        </span>
-        <input id="path-${s.instanceName}" type="text"
+        ${methodCtrl}
+        <input id="path-${n}" type="text"
                class="form-control font-monospace"
-               style="background:#0d1117;border-color:#30363d;color:#e6edf3"
+               ${readOnly}
                value="${esc(s.testPath)}"
                placeholder="/"
-               onkeydown="if(event.key==='Enter')doTest('${s.instanceName}')" />
-        <button class="btn btn-primary" onclick="doTest('${s.instanceName}')">
+               onkeydown="if(event.key==='Enter')doTest('${n}')" />
+        <button class="btn btn-primary btn-sm" onclick="doTest('${n}')">
           <i class="bi bi-send"></i>
         </button>
       </div>
-      <div class="d-flex gap-2">
-        <button class="btn btn-sm btn-outline-success" title="Start service"
-                onclick="doControl(this,'${s.instanceName}','start')">
-          <i class="bi bi-play-fill"></i> Start
-        </button>
-        <button class="btn btn-sm btn-outline-danger" title="Stop service"
-                onclick="doControl(this,'${s.instanceName}','stop')">
-          <i class="bi bi-stop-fill"></i> Stop
-        </button>
+      <div id="body-wrap-${n}" class="d-none">
+        <textarea id="body-${n}" rows="3" class="form-control form-control-sm font-monospace"
+                  style="background-color:#0d1117;border-color:#30363d;color:#e6edf3"
+                  placeholder='{"key": "value"}'></textarea>
       </div>
     </div>
     <div id="${rid}" class="d-none">
@@ -132,20 +200,19 @@ function customCardHtml() {
 <div class="col-12">
   <div class="card">
     <div class="card-header d-flex align-items-center gap-2">
-      <i class="bi bi-globe2 text-warning"></i>
-      <span class="fw-semibold">Custom Request</span>
-      <small class="text-muted ms-1">— send a request to any URL</small>
+      <span class="fw-semibold">URL</span>
+      <small class="text-muted">send a request to any address</small>
     </div>
     <div class="card-body d-flex flex-column gap-2">
       <div class="input-group">
         <select id="custom-method" class="form-select font-monospace"
-                style="max-width:90px;background:#0d1117;border-color:#30363d;color:#e6edf3"
+                style="max-width:90px;background-color:#0d1117;border-color:#30363d;color:#e6edf3"
                 onchange="document.getElementById('custom-body-wrap').classList.toggle('d-none',this.value!=='POST')">
           <option>GET</option>
           <option>POST</option>
         </select>
         <input id="custom-url" type="text" class="form-control font-monospace"
-               style="background:#0d1117;border-color:#30363d;color:#e6edf3"
+               style="background-color:#0d1117;border-color:#30363d;color:#e6edf3"
                placeholder="https://api.example.com/endpoint"
                onkeydown="if(event.key==='Enter')doCustomTest()" />
         <button class="btn btn-warning" onclick="doCustomTest()">
@@ -154,7 +221,7 @@ function customCardHtml() {
       </div>
       <div id="custom-body-wrap" class="d-none">
         <textarea id="custom-body" rows="3" class="form-control form-control-sm font-monospace"
-                  style="background:#0d1117;border-color:#30363d;color:#e6edf3"
+                  style="background-color:#0d1117;border-color:#30363d;color:#e6edf3"
                   placeholder='{"key": "value"}'></textarea>
       </div>
     </div>
@@ -165,6 +232,42 @@ function customCardHtml() {
     </div>
   </div>
 </div>`;
+}
+
+// ── Preset / method helpers ───────────────────────────────────────────────────
+function toggleBody(name) {
+  const method = document.getElementById(`method-${name}`)?.value ?? 'GET';
+  document.getElementById(`body-wrap-${name}`)?.classList.toggle('d-none', method !== 'POST');
+}
+
+// Body hints for specific POST presets — keyed by "name|path"
+const BODY_HINTS = {
+  'SqlService|/api/orders': '{"customerId": 1, "productId": 1, "quantity": 1}',
+  'JsonPlaceholder|/posts': '{"title": "hello", "body": "world", "userId": 1}',
+};
+
+function applyPreset(name) {
+  const sel = document.getElementById(`preset-${name}`);
+  if (!sel) return;
+  const [path, method] = sel.value.split('|');
+  const pathEl   = document.getElementById(`path-${name}`);
+  const methodEl = document.getElementById(`method-${name}`);
+  const bodyEl   = document.getElementById(`body-${name}`);
+  const isCustom = !path;
+
+  pathEl.value    = isCustom ? '' : path;
+  pathEl.readOnly = !isCustom;
+  pathEl.style.color = isCustom ? '#e6edf3' : '#8b949e';
+
+  if (methodEl) {
+    methodEl.value = method || 'GET';
+    toggleBody(name);
+  }
+
+  if (bodyEl && method === 'POST' && path) {
+    const hint = BODY_HINTS[`${name}|${path}`];
+    if (hint) bodyEl.value = hint;
+  }
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────
@@ -206,9 +309,11 @@ async function doCustomTest() {
 }
 
 async function doTest(name) {
-  const rid  = `r-${name}`;
-  const pre  = document.getElementById(`${rid}-pre`);
-  const path = document.getElementById(`path-${name}`)?.value.trim() || '/';
+  const rid    = `r-${name}`;
+  const pre    = document.getElementById(`${rid}-pre`);
+  const path   = document.getElementById(`path-${name}`)?.value.trim() || '/';
+  const method = document.getElementById(`method-${name}`)?.value ?? 'GET';
+  const body   = document.getElementById(`body-${name}`)?.value ?? '';
   document.getElementById(rid).classList.remove('d-none');
   pre.className   = 'response mb-0 text-muted';
   pre.textContent = '⏳ Sending request…';
@@ -217,15 +322,15 @@ async function doTest(name) {
     const r    = await fetch(`/api/services/${name}/test`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ path }),
+      body:    JSON.stringify({ path, method, body: method === 'POST' ? body : null }),
     });
     const data = await r.json();
     if (data.error) {
       pre.className   = 'response mb-0 text-danger';
-      pre.textContent = `❌ ${data.error}\n\nURL: ${data.url}`;
+      pre.textContent = `❌ ${data.error}\n\nURL: ${data.url ?? ''}`;
     } else {
       pre.className   = 'response mb-0 text-success';
-      pre.textContent = `✅ HTTP ${data.statusCode}  ${data.url}\n\n${JSON.stringify(data.body, null, 2)}`;
+      pre.textContent = `✅ HTTP ${data.statusCode}  [${data.method ?? method}]  ${data.url}\n\n${JSON.stringify(data.body, null, 2)}`;
     }
   } catch (e) {
     pre.className   = 'response mb-0 text-danger';
@@ -235,14 +340,21 @@ async function doTest(name) {
 
 async function doControl(btn, name, action) {
   btn.disabled = true;
+  console.log(`[control] ${action} → ${name}`);
   try {
     const r = await fetch(`/api/services/${name}/${action}`, { method: 'POST' });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
-      alert(`Failed to ${action} ${name}:\n${err.title ?? err.detail ?? JSON.stringify(err)}`);
+      const msg = err.title ?? err.detail ?? JSON.stringify(err);
+      console.error(`[control] ${action} ${name} failed (HTTP ${r.status}):`, err);
+      alert(`Failed to ${action} ${name}:\n${msg}`);
+    } else {
+      const data = await r.json().catch(() => ({}));
+      console.log(`[control] ${action} ${name} →`, data);
     }
     await refresh();
   } catch (e) {
+    console.error(`[control] ${action} ${name} exception:`, e);
     alert(`${action} ${name}: ${e.message}`);
   } finally {
     btn.disabled = false;
@@ -260,7 +372,10 @@ async function refresh() {
 
     if (firstRender) {
       document.getElementById('grid').innerHTML =
-        services.map(cardHtml).join('') + customCardHtml();
+        services.map(cardHtml).join('') +
+        `<div class="col-12"><hr style="border-color:#30363d;margin:0.25rem 0" />
+           <small class="text-muted"><i class="bi bi-globe2 me-1"></i>Custom Request</small></div>` +
+        customCardHtml();
       firstRender = false;
     } else {
       // Patch status badges only — keeps test response panels intact

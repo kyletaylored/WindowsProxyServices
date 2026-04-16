@@ -33,6 +33,7 @@ jobs:
           dotnet publish src/WindowsProxyService/WindowsProxyService.csproj         @pubArgs
           dotnet publish src/WindowsDashboardService/WindowsDashboardService.csproj @pubArgs
           dotnet publish src/WindowsTrayApp/WindowsTrayApp.csproj                   @pubArgs
+          dotnet publish src/WindowsSqlService/WindowsSqlService.csproj             @pubArgs
 
       - name: Smoke test — verify published output
         shell: pwsh
@@ -41,6 +42,7 @@ jobs:
             'WindowsProxyService.exe',
             'WindowsDashboardService.exe',
             'WindowsTrayApp.exe',
+            'WindowsSqlService.exe',
             'services.json'
           )
           foreach ($f in $required) {

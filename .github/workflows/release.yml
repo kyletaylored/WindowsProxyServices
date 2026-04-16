@@ -96,9 +96,10 @@ jobs:
             '-o', "${{ github.workspace }}\publish"
           )
 
-          dotnet publish src/WindowsProxyService/WindowsProxyService.csproj       @pubArgs
+          dotnet publish src/WindowsProxyService/WindowsProxyService.csproj         @pubArgs
           dotnet publish src/WindowsDashboardService/WindowsDashboardService.csproj @pubArgs
-          dotnet publish src/WindowsTrayApp/WindowsTrayApp.csproj                 @pubArgs
+          dotnet publish src/WindowsTrayApp/WindowsTrayApp.csproj                   @pubArgs
+          dotnet publish src/WindowsSqlService/WindowsSqlService.csproj             @pubArgs
 
       - name: Generate WiX file fragment
         shell: pwsh
@@ -116,7 +117,8 @@ jobs:
           $excludedExes = @(
             'WindowsProxyService.exe',
             'WindowsDashboardService.exe',
-            'WindowsTrayApp.exe'
+            'WindowsTrayApp.exe',
+            'WindowsSqlService.exe'
           )
 
           $allFiles  = Get-ChildItem -Path $publishDir -File -Recurse |
@@ -182,6 +184,7 @@ jobs:
             installer\Services.wxs `
             installer\Files.wxs `
             installer\RumConfigDlg.wxs `
+            installer\SqlServerCA.wxs `
             -arch x64 `
             -d "Version=$msiVer" `
             -d "Manufacturer=Kyle Taylor" `
@@ -290,6 +293,20 @@ jobs:
             Write-Host "No certificate in artifact — unsigned build, skipping trust step."
           }
 
+      - name: Start SQL Server Express
+        # The windows-latest runner ships with SQL Server Express but leaves its
+        # service stopped by default.  Start it before the MSI so WindowsSqlService
+        # can connect immediately on first boot.
+        shell: pwsh
+        run: |
+          $svc = Get-Service -Name 'MSSQL$SQLEXPRESS' -ErrorAction SilentlyContinue
+          if ($svc) {
+            Start-Service 'MSSQL$SQLEXPRESS'
+            Write-Host "SQL Server Express started."
+          } else {
+            Write-Host "MSSQL`$SQLEXPRESS not found — SqlServerCA.wxs will install it during MSI setup."
+          }
+
       - name: Install MSI
         # /qn  = silent (no UI); WIXUI_EXITDIALOGOPTIONALCHECKBOX=0 suppresses
         # the tray-app launch that would otherwise fire from the default property.
@@ -331,11 +348,10 @@ jobs:
         run: |
           $services = @(
             'WindowsProxyService.OpenMeteo',
-            'WindowsProxyService.CatFacts',
             'WindowsProxyService.JsonPlaceholder',
-            'WindowsProxyService.DogCeo',
-            'WindowsProxyService.ChuckNorris',
-            'WindowsDashboardService'
+            'WindowsProxyService.DatadogDemo',
+            'WindowsDashboardService',
+            'WindowsSqlService'
           )
           foreach ($svc in $services) {
             $deadline = [DateTime]::UtcNow.AddSeconds(60)
@@ -361,18 +377,22 @@ jobs:
         shell: pwsh
         run: |
           $tests = @(
-            @{ Url = 'http://localhost:5051/api/services'; Desc = 'Dashboard – services list'    },
-            @{ Url = 'http://localhost:5052/api/status';   Desc = 'OpenMeteo proxy status'       },
-            @{ Url = 'http://localhost:5053/api/status';   Desc = 'CatFacts proxy status'        },
-            @{ Url = 'http://localhost:5054/api/status';   Desc = 'JsonPlaceholder proxy status' },
-            @{ Url = 'http://localhost:5055/api/status';   Desc = 'DogCeo proxy status'          },
-            @{ Url = 'http://localhost:5056/api/status';   Desc = 'ChuckNorris proxy status'     }
+            @{ Url = 'http://localhost:5051/api/services'; Desc = 'Dashboard – services list'      },
+            @{ Url = 'http://localhost:5052/api/status';   Desc = 'OpenMeteo proxy status'         },
+            @{ Url = 'http://localhost:5053/api/status';   Desc = 'JsonPlaceholder proxy status'   },
+            @{ Url = 'http://localhost:5054/api/status';   Desc = 'DatadogDemo proxy status'       },
+            @{ Url = 'http://localhost:5055/api/status';   Desc = 'SqlService status'; ExpectOk = $true }
           )
           $failed = 0
           foreach ($t in $tests) {
             try {
               $resp = Invoke-WebRequest -Uri $t.Url -UseBasicParsing -TimeoutSec 10
               if ($resp.StatusCode -ne 200) { throw "HTTP $($resp.StatusCode)" }
+              # For SqlService, also verify the DB is reachable (status field = "ok")
+              if ($t.ExpectOk) {
+                $body = $resp.Content | ConvertFrom-Json
+                if ($body.status -ne 'ok') { throw "status=$($body.status) error=$($body.error)" }
+              }
               Write-Host "OK  $($t.Desc)"
             } catch {
               Write-Host "FAIL $($t.Desc) — $_"

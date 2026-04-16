@@ -6,11 +6,12 @@ A single compiled binary (`WindowsProxyService.exe`) is deployed as multiple Win
 
 ## What's Included
 
-| Component                 | Type                 | Port      | Purpose                                                  |
-| ------------------------- | -------------------- | --------- | -------------------------------------------------------- |
-| `WindowsProxyService`     | Windows Service (×5) | 5052–5056 | YARP reverse proxies — one per upstream API              |
-| `WindowsDashboardService` | Windows Service      | 5051      | Bootstrap 5 web UI — status, test requests, start/stop   |
-| `WindowsTrayApp`          | Desktop App          | —         | System tray icon — opens dashboard, start/stop shortcuts |
+| Component                 | Type                 | Port      | Purpose                                                                          |
+| ------------------------- | -------------------- | --------- | -------------------------------------------------------------------------------- |
+| `WindowsProxyService`     | Windows Service (×3) | 5052–5054 | YARP reverse proxies — one per upstream API                                      |
+| `WindowsSqlService`       | Windows Service      | 5055      | ASP.NET Core API over SQL Server Express — Products / Orders / Customers schema  |
+| `WindowsDashboardService` | Windows Service      | 5051      | Bootstrap 5 web UI — status, test requests, start/stop                           |
+| `WindowsTrayApp`          | Desktop App          | —         | System tray icon — opens dashboard, start/stop shortcuts                         |
 
 ![Windows Proxy Services dashboard showing live service cards and test request controls](assets/wps-dashboard.webp)
 
@@ -18,7 +19,8 @@ A single compiled binary (`WindowsProxyService.exe`) is deployed as multiple Win
 
 ```
 src/
-  WindowsProxyService/         Core proxy service (one binary, five instances)
+  WindowsProxyService/         Core proxy service (one binary, multiple instances)
+  WindowsSqlService/           SQL Server API service for Datadog DBM demos
   WindowsDashboardService/     Web dashboard + REST control API
     wwwroot/index.html         Bootstrap 5 dark-theme dashboard UI
   WindowsTrayApp/              WinForms system tray application
@@ -36,7 +38,7 @@ rules.toml                     Datadog Workload Selection rules (compile before 
 Download the latest `WindowsProxyServices-<version>.msi` from the [Releases](https://github.com/kyletaylored/WindowsProxyServices/releases) page and run it. The installer:
 
 - Copies all binaries to `C:\Services\WindowsProxyService\` (configurable in the GUI)
-- Registers and auto-starts all five proxy services plus the dashboard service
+- Registers and auto-starts all proxy services, the SQL service, and the dashboard service
 - Creates a **Start Menu shortcut** for the tray app
 - Adds the tray app to the **All Users Startup folder** so it launches automatically for every user who logs in
 - Offers a **"Launch tray app"** checkbox on the final screen (checked by default) to start it immediately after install
@@ -88,8 +90,11 @@ The proxy service supports starting one or multiple instances in a single proces
 # Terminal 1 — dashboard (http://localhost:5051)
 dotnet run --project src/WindowsDashboardService
 
-# Terminal 2 — all five proxy instances in one process
+# Terminal 2 — all three proxy instances in one process (OpenMeteo, JsonPlaceholder, DatadogDemo)
 dotnet run --project src/WindowsProxyService -- --all
+
+# Terminal 3 — SQL service (http://localhost:5055)
+dotnet run --project src/WindowsSqlService
 
 # Optional — tray app (separate window, needs dashboard running)
 dotnet run --project src/WindowsTrayApp
@@ -98,7 +103,7 @@ dotnet run --project src/WindowsTrayApp
 Or start a subset of services:
 
 ```powershell
-dotnet run --project src/WindowsProxyService -- --name OpenMeteo CatFacts
+dotnet run --project src/WindowsProxyService -- --name OpenMeteo JsonPlaceholder
 ```
 
 Open [http://localhost:5051](http://localhost:5051) to access the dashboard.
@@ -110,20 +115,20 @@ Open [http://localhost:5051](http://localhost:5051) to access the dashboard.
 | Form                               | Behaviour                                      |
 | ---------------------------------- | ---------------------------------------------- |
 | `--name OpenMeteo`                 | Start one instance                             |
-| `--name OpenMeteo CatFacts`        | Start two instances in one process             |
-| `--name OpenMeteo --name CatFacts` | Same, flags repeated                           |
-| `--name *` or `--all`              | Start every service defined in `services.json` |
+| `--name OpenMeteo JsonPlaceholder`        | Start two instances in one process             |
+| `--name OpenMeteo --name JsonPlaceholder` | Same, flags repeated                           |
+| `--name *` or `--all`              | Start all HTTP proxy instances (non-proxy entries such as `SqlService` are skipped) |
 
 ### Running from Visual Studio
 
-**Quickest setup — all services in two processes:**
+**Quickest setup — all services in three processes:**
 
 1. Open `WindowsProxyServices.sln`.
 2. Right-click `WindowsProxyService` → **Properties** → **Debug** → **General** → **Open debug launch profiles UI**.
 3. Set **Command line arguments** to `--all`.
 4. Right-click the **Solution** → **Properties** → **Common Properties** → **Startup Project** → **Multiple Startup Projects**.
-5. Set `WindowsDashboardService` and `WindowsProxyService` to **Start**.
-6. Press **F5** — the dashboard starts on port 5051 and all five proxies start on ports 5052–5056.
+5. Set `WindowsDashboardService`, `WindowsProxyService`, and `WindowsSqlService` to **Start**.
+6. Press **F5** — the dashboard starts on port 5051, all three proxies start on ports 5052–5054, and the SQL service starts on port 5055.
 
 **Start a single proxy instance (e.g. for focused debugging):**
 
@@ -140,7 +145,8 @@ Add `WindowsTrayApp` to the Multiple Startup Projects list, or start it separate
 The **Windows Dashboard Service** runs at [http://localhost:5051](http://localhost:5051) and provides:
 
 - **Live status cards** for each proxy service, auto-refreshing every 5 seconds
-- **Editable path input** per card — pre-filled with a default test path; press Enter or click Send to fire a GET request through the proxy and see the formatted JSON response inline
+- **Preset endpoint selector** per card — choose from known endpoints for each service, or enter a custom path; select GET or POST (POST surfaces a body textarea)
+- **Editable path input** per card — pre-filled with the first preset; press Enter or click Send to fire the request and see the formatted JSON response inline
 - **Custom Request card** — enter any full URL, choose GET or POST (with optional JSON body), and fire the request directly through the dashboard service
 - **Start / Stop buttons** — controls each Windows service directly (the dashboard runs as LocalSystem so no elevation prompt is needed)
 
@@ -151,7 +157,7 @@ The dashboard is itself a Windows service (`WindowsDashboardService`) so it star
 | Method | Path                         | Description                                                                        |
 | ------ | ---------------------------- | ---------------------------------------------------------------------------------- |
 | `GET`  | `/api/services`              | List all services with status, port, upstream URL                                  |
-| `POST` | `/api/services/{name}/test`  | Fire a GET request through the named proxy; optional body `{"path":"/custom"}`     |
+| `POST` | `/api/services/{name}/test`  | Fire a request through the named proxy; body: `{"path":"/custom","method":"GET\|POST","body":"…"}` |
 | `POST` | `/api/services/{name}/start` | Start the named Windows service                                                    |
 | `POST` | `/api/services/{name}/stop`  | Stop the named Windows service                                                     |
 | `POST` | `/api/custom-request`        | Fire a GET or POST to any URL; body: `{"url":"…","method":"GET\|POST","body":"…"}` |
@@ -162,11 +168,11 @@ Example:
 # List all services and their status
 Invoke-RestMethod http://localhost:5051/api/services
 
-# Test the ChuckNorris proxy
-Invoke-RestMethod -Method Post http://localhost:5051/api/services/ChuckNorris/test
+# Test the DatadogDemo proxy (health check)
+Invoke-RestMethod -Method Post http://localhost:5051/api/services/DatadogDemo/test
 
-# Stop the DogCeo proxy
-Invoke-RestMethod -Method Post http://localhost:5051/api/services/DogCeo/stop
+# Stop the JsonPlaceholder proxy
+Invoke-RestMethod -Method Post http://localhost:5051/api/services/JsonPlaceholder/stop
 ```
 
 ## Tray App
@@ -202,32 +208,26 @@ Defines all proxy instances. Located at `src/WindowsProxyService/services.json` 
     "ProxyUrl": "https://api.open-meteo.com"
   },
   {
-    "InstanceName": "CatFacts",
-    "ServiceDescription": "Proxies requests to the Cat Facts API (no auth required)",
-    "Host": "+",
-    "Port": 5053,
-    "ProxyUrl": "https://catfact.ninja"
-  },
-  {
     "InstanceName": "JsonPlaceholder",
     "ServiceDescription": "Proxies requests to JSONPlaceholder — fake REST API for testing (no auth required)",
     "Host": "+",
-    "Port": 5054,
+    "Port": 5053,
     "ProxyUrl": "https://jsonplaceholder.typicode.com"
   },
   {
-    "InstanceName": "DogCeo",
-    "ServiceDescription": "Proxies requests to the Dog CEO random dog image API (no auth required)",
+    "InstanceName": "DatadogDemo",
+    "ServiceDescription": "Proxies requests to the Datadog sanity demo app — health checks, slow queries, distributed traces, and error simulation",
     "Host": "+",
-    "Port": 5055,
-    "ProxyUrl": "https://dog.ceo"
+    "Port": 5054,
+    "ProxyUrl": "https://datadog-sanity-vercel-demo-app.vercel.app"
   },
   {
-    "InstanceName": "ChuckNorris",
-    "ServiceDescription": "Proxies requests to the Chuck Norris jokes API (no auth required)",
+    "InstanceName": "SqlService",
+    "ServiceDescription": "Exposes a WpsDemo SQL Server database (Products / Orders / Customers) for Datadog DBM and SQL tracing demos",
     "Host": "+",
-    "Port": 5056,
-    "ProxyUrl": "https://api.chucknorris.io"
+    "Port": 5055,
+    "ProxyUrl": "sql://localhost\\SQLEXPRESS/WpsDemo",
+    "ServiceName": "WindowsSqlService"
   }
 ]
 ```
@@ -238,6 +238,7 @@ Defines all proxy instances. Located at `src/WindowsProxyService/services.json` 
 | `Host`         | `+` listens on all interfaces (Kestrel wildcard).                                                                                                                     |
 | `Port`         | Port this instance binds to.                                                                                                                                          |
 | `ProxyUrl`     | Upstream base URL. All incoming paths and query strings are forwarded.                                                                                                |
+| `ServiceName`  | _(optional)_ Override the Windows Service name used by the dashboard for start/stop. Defaults to `WindowsProxyService.<InstanceName>`.                                |
 
 ---
 
@@ -283,6 +284,7 @@ All proxy instances share one binary, so `process.executable` matches all of the
 | `process.executable` | `WindowsProxyService.exe`     | All proxy instances            |
 | `process.executable` | `*ProxyService.exe`           | All proxy instances (wildcard) |
 | `dotnet.dll`         | `WindowsProxyService.dll`     | All proxy instances (by DLL)   |
+| `process.executable` | `WindowsSqlService.exe`       | SQL service only               |
 | `process.executable` | `WindowsDashboardService.exe` | Dashboard service only         |
 
 ### Example rules (see rules.toml for full file)
@@ -324,14 +326,13 @@ Open [http://localhost:5051](http://localhost:5051) — click **Test** on any ca
 
 ### Using PowerShell
 
-**Status endpoint (each proxy instance):**
+**Status endpoint (all services):**
 
 ```powershell
-Invoke-RestMethod http://localhost:5052/api/status
-Invoke-RestMethod http://localhost:5053/api/status
-Invoke-RestMethod http://localhost:5054/api/status
-Invoke-RestMethod http://localhost:5055/api/status
-Invoke-RestMethod http://localhost:5056/api/status
+Invoke-RestMethod http://localhost:5052/api/status   # OpenMeteo proxy
+Invoke-RestMethod http://localhost:5053/api/status   # JsonPlaceholder proxy
+Invoke-RestMethod http://localhost:5054/api/status   # DatadogDemo proxy
+Invoke-RestMethod http://localhost:5055/api/status   # SqlService (database + product count)
 ```
 
 **WindowsProxyService.OpenMeteo — port 5052**
@@ -344,38 +345,56 @@ Invoke-RestMethod "http://localhost:5052/v1/forecast?latitude=32.78&longitude=-9
 Invoke-RestMethod "http://localhost:5052/v1/forecast?latitude=32.78&longitude=-96.80&hourly=temperature_2m,windspeed_10m&forecast_days=3"
 ```
 
-**WindowsProxyService.CatFacts — port 5053**
+**WindowsProxyService.JsonPlaceholder — port 5053**
 
 ```powershell
-Invoke-RestMethod "http://localhost:5053/fact"
-Invoke-RestMethod "http://localhost:5053/facts?page=1&limit=5"
-```
-
-**WindowsProxyService.JsonPlaceholder — port 5054**
-
-```powershell
-Invoke-RestMethod "http://localhost:5054/posts/1"
-Invoke-RestMethod "http://localhost:5054/posts/1/comments"
+Invoke-RestMethod "http://localhost:5053/posts/1"
+Invoke-RestMethod "http://localhost:5053/users"
 
 # Simulated POST (returns the created resource)
-Invoke-RestMethod "http://localhost:5054/posts" -Method Post `
+Invoke-RestMethod "http://localhost:5053/posts" -Method Post `
   -ContentType "application/json" `
   -Body '{"title":"Test","body":"Hello proxy","userId":1}'
 ```
 
-**WindowsProxyService.DogCeo — port 5055**
+**WindowsProxyService.DatadogDemo — port 5054**
 
 ```powershell
-Invoke-RestMethod "http://localhost:5055/api/breeds/image/random"
-Invoke-RestMethod "http://localhost:5055/api/breeds/list/all"
+# Health check
+Invoke-RestMethod "http://localhost:5054/api/lab/health"
+
+# Slow query simulation (3s delay — useful for latency traces)
+Invoke-RestMethod "http://localhost:5054/api/lab/slow-query?delay=3000"
+
+# Distributed trace chain
+Invoke-RestMethod "http://localhost:5054/api/lab/chain"
+
+# Handled error
+Invoke-RestMethod "http://localhost:5054/api/lab/handled-error"
 ```
 
-**WindowsProxyService.ChuckNorris — port 5056**
+**WindowsSqlService — port 5055**
 
 ```powershell
-Invoke-RestMethod "http://localhost:5056/jokes/random"
-Invoke-RestMethod "http://localhost:5056/jokes/random?category=science"
-Invoke-RestMethod "http://localhost:5056/jokes/categories"
+# Database status and product count
+Invoke-RestMethod "http://localhost:5055/api/status"
+
+# List all products
+Invoke-RestMethod "http://localhost:5055/api/products"
+
+# List all orders (joined with customer and product names)
+Invoke-RestMethod "http://localhost:5055/api/orders"
+
+# Order summary by status (stored procedure)
+Invoke-RestMethod "http://localhost:5055/api/reports/summary"
+
+# Customer order history (stored procedure)
+Invoke-RestMethod "http://localhost:5055/api/customers/1/orders"
+
+# Create an order
+Invoke-RestMethod "http://localhost:5055/api/orders" -Method Post `
+  -ContentType "application/json" `
+  -Body '{"customerId":1,"productId":1,"quantity":2}'
 ```
 
 ---
@@ -465,8 +484,8 @@ version  →  build  →  smoke-test  →  release (tag push only)
 | Job          | Runner  | What it does                                                                                                                                                                                                                                                                     |
 | ------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `version`    | ubuntu  | Resolves semver and MSI version strings; exports them as job outputs                                                                                                                                                                                                             |
-| `build`      | windows | `dotnet publish` all three projects, generates `Files.wxs`, builds the MSI, uploads it as a workflow artifact                                                                                                                                                                    |
-| `smoke-test` | windows | Installs the MSI silently (optionally passing `DD_RUM_*` secrets as `msiexec` properties), polls all six services until `Running`, probes each HTTP endpoint, runs a headless Playwright browser test against the dashboard, then uninstalls. Uploads installer logs on failure. |
+| `build`      | windows | `dotnet publish` all four projects, generates `Files.wxs`, builds the MSI, uploads it as a workflow artifact                                                                                                                                                                     |
+| `smoke-test` | windows | Installs the MSI silently (optionally passing `DD_RUM_*` secrets as `msiexec` properties), polls all services until `Running`, probes each HTTP endpoint, runs a headless Playwright browser test against the dashboard, then uninstalls. Uploads installer logs on failure. |
 | `release`    | ubuntu  | Downloads the artifact and publishes a GitHub Release with auto-generated release notes                                                                                                                                                                                          |
 
 The Playwright browser test navigates to `http://localhost:5051`, asserts service cards are visible, validates `rum-config.json` is valid JSON, and — when `DD_RUM_APP_ID` is set — asserts `window.DD_RUM` was initialised. The RUM assertion is silently skipped when credentials are not configured.
@@ -515,16 +534,72 @@ Go to **Actions → Release → Run workflow** and optionally enter a version st
 
 ---
 
+## Datadog Database Monitoring (DBM)
+
+`WindowsSqlService` is a standalone ASP.NET Core Windows service that connects to a local **SQL Server Express** instance and exposes a small e-commerce demo database (Products / Orders / Customers). It is designed to be instrumented by the Datadog .NET tracer, enabling you to validate:
+
+1. **SQL Server integration** — host-level metrics visible in the Datadog infrastructure list
+2. **Query-level metrics** — individual query performance, execution plans, and wait stats via DBM
+3. **Trace-to-query correlation** — APM traces linked directly to the SQL queries that ran during a given request
+
+### SQL Server Express
+
+The MSI installer checks for an existing SQL Server instance and downloads SQL Server Express if none is found. To install it manually:
+
+```powershell
+# Download and run the SQL Server Express installer (shows its own progress window)
+$url  = "https://go.microsoft.com/fwlink/p/?LinkID=2216019&clcid=0x409&culture=en-us&country=US"
+$dest = "$env:TEMP\SQLEXPR_x64.exe"
+Invoke-WebRequest -Uri $url -OutFile $dest
+Start-Process $dest -ArgumentList "/QS /ACTION=Install /FEATURES=SQLEngine /INSTANCENAME=SQLEXPRESS /SQLSVCACCOUNT=""NT AUTHORITY\SYSTEM"" /SQLSYSADMINACCOUNTS=""BUILTIN\Administrators"" /AGTSVCSTARTUPTYPE=Disabled /BROWSERSVCSTARTUPTYPE=Automatic /IACCEPTSQLSERVERLICENSETERMS" -Wait
+```
+
+The service connects to `localhost\SQLEXPRESS` with Windows Authentication. The connection string can be overridden via the `WPS_SQL_CONNECTION_STRING` environment variable.
+
+### Datadog Agent configuration
+
+After installing the Datadog Agent, create a SQL Server check configuration file:
+
+```yaml
+# C:\ProgramData\Datadog\conf.d\sqlserver.d\conf.yaml
+init_config:
+
+instances:
+  - host: localhost,1433
+    connector: adodbapi
+    adoprovider: MSOLEDBSQL
+    username: datadog
+    password: "<DD_AGENT_PASSWORD>"
+    dbm: true
+    tags:
+      - env:windows-demo
+```
+
+For trace-to-query correlation, the service already sets `DD_DBM_PROPAGATION_MODE=full` via the registry environment key written by the installer. No additional configuration is needed on the .NET side.
+
+### Schema
+
+| Table       | Columns                                                                    |
+| ----------- | -------------------------------------------------------------------------- |
+| `Products`  | Id, Name, Description, Price, Category, Stock, CreatedAt                   |
+| `Customers` | Id, FirstName, LastName, Email, CreatedAt                                  |
+| `Orders`    | Id, CustomerId, ProductId, Quantity, UnitPrice, TotalPrice, Status, OrderDate |
+
+Stored procedures: `sp_GetOrderSummary` (aggregate by status), `sp_GetCustomerOrders @CustomerId`.
+
+All tables are created idempotently on first startup. Seed data (6 products, 4 customers, 10 orders) is inserted only when tables are empty.
+
+---
+
 ## Windows Service Names
 
-| Service Name                          | Port | Upstream                             |
-| ------------------------------------- | ---- | ------------------------------------ |
-| `WindowsProxyService.OpenMeteo`       | 5052 | https://api.open-meteo.com           |
-| `WindowsProxyService.CatFacts`        | 5053 | https://catfact.ninja                |
-| `WindowsProxyService.JsonPlaceholder` | 5054 | https://jsonplaceholder.typicode.com |
-| `WindowsProxyService.DogCeo`          | 5055 | https://dog.ceo                      |
-| `WindowsProxyService.ChuckNorris`     | 5056 | https://api.chucknorris.io           |
-| `WindowsDashboardService`             | 5051 | _(serves the local dashboard UI)_    |
+| Service Name                          | Port | Upstream / Purpose                                          |
+| ------------------------------------- | ---- | ----------------------------------------------------------- |
+| `WindowsProxyService.OpenMeteo`       | 5052 | https://api.open-meteo.com                                  |
+| `WindowsProxyService.JsonPlaceholder` | 5053 | https://jsonplaceholder.typicode.com                        |
+| `WindowsProxyService.DatadogDemo`     | 5054 | https://datadog-sanity-vercel-demo-app.vercel.app           |
+| `WindowsSqlService`                   | 5055 | `localhost\SQLEXPRESS` — WpsDemo database API               |
+| `WindowsDashboardService`             | 5051 | _(serves the local dashboard UI)_                           |
 
 ## Log Format
 

@@ -1,13 +1,12 @@
 {
   "profiles": {
-    "WindowsProxyService": {
+    "WindowsDashboardService": {
       "commandName": "Project",
-      "commandLineArgs": "--name *",
       "launchBrowser": true,
+      "applicationUrl": "http://localhost:5051",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
-      },
-      "applicationUrl": "https://localhost:55984;http://localhost:55985"
+      }
     }
   }
 }

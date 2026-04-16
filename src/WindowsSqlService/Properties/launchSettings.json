@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "WindowsSqlService": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5055",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "WPS_SQL_CONNECTION_STRING": "Server=localhost\\SQLEXPRESS;Database=WpsDemo;Integrated Security=true;TrustServerCertificate=true;"
+      }
+    }
+  }
+}

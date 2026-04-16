@@ -7,31 +7,25 @@
     "ProxyUrl": "https://api.open-meteo.com"
   },
   {
-    "InstanceName": "CatFacts",
-    "ServiceDescription": "Proxies requests to the Cat Facts API (no auth required)",
-    "Host": "+",
-    "Port": 5053,
-    "ProxyUrl": "https://catfact.ninja"
-  },
-  {
     "InstanceName": "JsonPlaceholder",
     "ServiceDescription": "Proxies requests to JSONPlaceholder — fake REST API for testing (no auth required)",
     "Host": "+",
-    "Port": 5054,
+    "Port": 5053,
     "ProxyUrl": "https://jsonplaceholder.typicode.com"
   },
   {
-    "InstanceName": "DogCeo",
-    "ServiceDescription": "Proxies requests to the Dog CEO random dog image API (no auth required)",
+    "InstanceName": "DatadogDemo",
+    "ServiceDescription": "Proxies requests to the Datadog sanity demo app — health checks, slow queries, distributed traces, and error simulation",
     "Host": "+",
-    "Port": 5055,
-    "ProxyUrl": "https://dog.ceo"
+    "Port": 5054,
+    "ProxyUrl": "https://datadog-sanity-vercel-demo-app.vercel.app"
   },
   {
-    "InstanceName": "ChuckNorris",
-    "ServiceDescription": "Proxies requests to the Chuck Norris jokes API (no auth required)",
+    "InstanceName": "SqlService",
+    "ServiceDescription": "Exposes a WpsDemo SQL Server database (Products / Orders / Customers) for Datadog DBM and SQL tracing demos",
     "Host": "+",
-    "Port": 5056,
-    "ProxyUrl": "https://api.chucknorris.io"
+    "Port": 5055,
+    "ProxyUrl": "sql://localhost\\SQLEXPRESS/WpsDemo",
+    "ServiceName": "WindowsSqlService"
   }
 ]
