@@ -9,7 +9,7 @@ builder.Host.UseWindowsService(o => o.ServiceName = "WindowsSqlService");
 builder.WebHost.UseUrls("http://+:5055");
 
 var connStr = Environment.GetEnvironmentVariable("WPS_SQL_CONNECTION_STRING")
-    ?? @"Server=localhost\SQLEXPRESS;Database=WpsDemo;Integrated Security=true;TrustServerCertificate=true;";
+    ?? @"Server=localhost\SQLEXPRESS;Database=WpsDemo;Integrated Security=true;TrustServerCertificate=true;Connect Timeout=5;";
 
 var app = builder.Build();
 

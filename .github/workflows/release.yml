@@ -373,6 +373,31 @@ jobs:
             Write-Host "OK  $svc"
           }
 
+      - name: Wait for SqlService to be database-ready
+        # The service process reaches Running state once Kestrel starts, but SQL
+        # Server Express may still be warming up.  Poll /api/status until the DB
+        # reports ok (Connect Timeout=5 in the connection string means each probe
+        # resolves within ~6s on failure rather than hanging for 30s).
+        shell: pwsh
+        run: |
+          $deadline = [DateTime]::UtcNow.AddSeconds(90)
+          do {
+            try {
+              $body = Invoke-RestMethod -Uri 'http://localhost:5055/api/status' -TimeoutSec 8 -ErrorAction Stop
+              if ($body.status -eq 'ok') { Write-Host "SqlService DB ready."; break }
+              Write-Host "SqlService not ready yet (status=$($body.status)) — retrying..."
+            } catch {
+              Write-Host "SqlService not responding yet — retrying..."
+            }
+            Start-Sleep -Seconds 5
+          } while ([DateTime]::UtcNow -lt $deadline)
+
+          $final = (Invoke-RestMethod -Uri 'http://localhost:5055/api/status' -TimeoutSec 8 -ErrorAction SilentlyContinue)
+          if ($final.status -ne 'ok') {
+            Write-Error "SqlService did not become database-ready within 90s (status=$($final.status) error=$($final.error))"
+            exit 1
+          }
+
       - name: Test HTTP endpoints
         shell: pwsh
         run: |
@@ -383,22 +408,42 @@ jobs:
             @{ Url = 'http://localhost:5054/api/status';   Desc = 'DatadogDemo proxy status'       },
             @{ Url = 'http://localhost:5055/api/status';   Desc = 'SqlService status'; ExpectOk = $true }
           )
+          $rows   = @()
           $failed = 0
           foreach ($t in $tests) {
             try {
               $resp = Invoke-WebRequest -Uri $t.Url -UseBasicParsing -TimeoutSec 10
               if ($resp.StatusCode -ne 200) { throw "HTTP $($resp.StatusCode)" }
               # For SqlService, also verify the DB is reachable (status field = "ok")
+              $detail = "HTTP $($resp.StatusCode)"
               if ($t.ExpectOk) {
                 $body = $resp.Content | ConvertFrom-Json
                 if ($body.status -ne 'ok') { throw "status=$($body.status) error=$($body.error)" }
+                $detail = "HTTP $($resp.StatusCode) · status=$($body.status) · products=$($body.productCount)"
               }
               Write-Host "OK  $($t.Desc)"
+              $rows += "| $($t.Desc) | ✅ Pass | $detail |"
             } catch {
               Write-Host "FAIL $($t.Desc) — $_"
+              $rows += "| $($t.Desc) | ❌ Fail | $_ |"
               $failed++
             }
           }
+
+          # Write results to the GitHub Step Summary
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $md = @(
+              '## 🔌 HTTP Endpoint Tests',
+              '',
+              '| Endpoint | Status | Detail |',
+              '|---|---|---|',
+              ($rows -join "`n"),
+              '',
+              "**$($rows.Count - $failed) passed · $failed failed**"
+            ) -join "`n"
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $md
+          }
+
           if ($failed -gt 0) { exit 1 }
 
       - name: Install Playwright
