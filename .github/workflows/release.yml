@@ -233,10 +233,13 @@ jobs:
             & $signtool sign /fd SHA256 /f $pfxPath /p $env:SIGNING_CERT_PASSWORD $msiPath
             if ($LASTEXITCODE -ne 0) { throw "signtool sign failed (exit $LASTEXITCODE)." }
 
-            & $signtool verify /pa $msiPath
-            if ($LASTEXITCODE -ne 0) { throw "signtool verify failed." }
-
-            Write-Host "Signed and verified: $msiPath"
+            # Verify the signature was applied. /pa requires a trusted root chain,
+            # which a self-signed cert can't satisfy on the CI runner — use
+            # Get-AuthenticodeSignature instead and reject only clear failures.
+            $sig = Get-AuthenticodeSignature $msiPath
+            if ($sig.Status -eq 'NotSigned')    { throw "MSI is not signed." }
+            if ($sig.Status -eq 'HashMismatch') { throw "MSI signature hash mismatch." }
+            Write-Host "Signed: $msiPath  ($($sig.Status) — $($sig.SignerCertificate.Subject))"
           } finally {
             Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
           }
