@@ -1,14 +1,20 @@
 name: Release
 
-# Triggered automatically by a semver tag push:
-#   git tag v1.2.3 && git push --tags
-#
-# Can also be run manually from the Actions tab to produce a test MSI without
-# creating a release.  Leave the version blank to get 0.0.0-dev.<run number>.
+# Triggered three ways:
+#   1. Push to main          — runs build + smoke-test only (no release)
+#   2. Semver tag push       — runs build + smoke-test + creates GitHub Release
+#        git tag v1.2.3 && git push --tags
+#   3. Manual (Actions tab)  — runs build + smoke-test only (no release)
+#        gh workflow run release.yml          # dev build (0.0.0-dev.<run>)
+#        gh workflow run release.yml -f version=1.2.3-beta1
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+    paths-ignore:
+      - '**.md'
   workflow_dispatch:
     inputs:
       version:
@@ -294,22 +300,36 @@ jobs:
           }
 
       - name: Start SQL Server Express
-        # The windows-latest runner ships with SQL Server Express but leaves both
-        # the engine and SQL Browser stopped.  SQL Browser must run first — it is
-        # what resolves the named instance (localhost\SQLEXPRESS) to a TCP port.
-        # Without it every connection attempt fails with error 26.
+        # Named instance resolution (localhost\SQLEXPRESS → TCP port) relies on
+        # SQL Browser over UDP 1434, which is unreliable on CI runners even when
+        # the service is running.  Instead: enable TCP/IP with a static port in
+        # the registry before starting the engine so we can connect via
+        # tcp:localhost,1433 and skip SQL Browser entirely.
         shell: pwsh
         run: |
           $svc = Get-Service -Name 'MSSQL$SQLEXPRESS' -ErrorAction SilentlyContinue
-          if ($svc) {
-            # Browser resolves named-instance → port; start it before the engine.
-            Set-Service -Name 'SQLBrowser' -StartupType Automatic -ErrorAction SilentlyContinue
-            Start-Service 'SQLBrowser' -ErrorAction SilentlyContinue
-            Start-Service 'MSSQL$SQLEXPRESS'
-            Write-Host "SQL Server Express + SQL Browser started."
-          } else {
+          if (-not $svc) {
             Write-Host "MSSQL`$SQLEXPRESS not found — SqlServerCA.wxs will install it during MSI setup."
+            exit 0
           }
+
+          # Locate the version-specific registry key (e.g. MSSQL15.SQLEXPRESS for 2019)
+          $instanceDir = Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' |
+              Where-Object { $_.PSChildName -match '^MSSQL\d+\.SQLEXPRESS$' } |
+              Select-Object -First 1 -ExpandProperty PSChildName
+
+          if ($instanceDir) {
+            $tcpPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceDir\MSSQLServer\SuperSocketNetLib\Tcp"
+            Set-ItemProperty -Path $tcpPath          -Name 'Enabled'         -Value 1      -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path "$tcpPath\IPAll"  -Name 'TcpPort'         -Value '1433' -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path "$tcpPath\IPAll"  -Name 'TcpDynamicPorts' -Value ''     -ErrorAction SilentlyContinue
+            Write-Host "TCP/IP enabled on port 1433 for $instanceDir."
+          } else {
+            Write-Host "Could not locate SQLEXPRESS registry key — TCP config skipped."
+          }
+
+          Start-Service 'MSSQL$SQLEXPRESS'
+          Write-Host "MSSQL`$SQLEXPRESS: $((Get-Service 'MSSQL$SQLEXPRESS').Status)"
 
       - name: Install MSI
         # /qn  = silent (no UI); WIXUI_EXITDIALOGOPTIONALCHECKBOX=0 suppresses
@@ -346,6 +366,19 @@ jobs:
             Get-Content install.log -ErrorAction SilentlyContinue | Select-Object -Last 50
             exit $proc.ExitCode
           }
+
+      - name: Switch SqlService to direct TCP connection
+        # The MSI installs WindowsSqlService with the default connection string
+        # (localhost\SQLEXPRESS).  Override it to tcp:localhost,1433 so it uses
+        # the static port we configured above instead of SQL Browser resolution.
+        shell: pwsh
+        run: |
+          $envKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\WindowsSqlService\Environment'
+          Set-ItemProperty -Path $envKey -Name 'WPS_SQL_CONNECTION_STRING' `
+              -Value 'Server=tcp:localhost,1433;Database=WpsDemo;Integrated Security=true;TrustServerCertificate=true;Connect Timeout=5;' `
+              -Type String
+          Restart-Service 'WindowsSqlService' -Force
+          Write-Host "WindowsSqlService restarted with tcp:localhost,1433."
 
       - name: Wait for services to reach Running state
         shell: pwsh
@@ -578,7 +611,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   release:
     needs: [version, smoke-test]
-    if: github.event_name == 'push'
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     environment: production
 
