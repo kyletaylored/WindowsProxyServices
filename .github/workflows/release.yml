@@ -326,12 +326,13 @@ jobs:
           catalog: WpsDemo
           connection-string-env-var: UNUSED_SQL_CONNECTION_STRING
 
-      - name: Enable TCP/IP on port 1433
-        # The choco install leaves SQL Express on a dynamic port.  Pin it to
-        # 1433 so we can use tcp:localhost,1433 in the connection string and
-        # avoid any SQL Browser / named-instance resolution issues.
+      - name: Configure SQL Server Express for CI
+        # The choco install leaves SQL Express on a dynamic port and does not
+        # grant NT AUTHORITY\SYSTEM any access.  Fix both before the MSI runs.
         shell: pwsh
         run: |
+          # 1. Enable TCP/IP on static port 1433 so we can use tcp:localhost,1433
+          #    and skip SQL Browser / named-instance resolution entirely.
           $instanceDir = Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' |
               Where-Object { $_.PSChildName -match '^MSSQL\d+\.SQLEXPRESS$' } |
               Select-Object -First 1 -ExpandProperty PSChildName
@@ -345,6 +346,14 @@ jobs:
           } else {
             Write-Host "WARNING: SQLEXPRESS registry key not found — TCP config skipped."
           }
+
+          # 2. Grant NT AUTHORITY\SYSTEM sysadmin so the Windows service can
+          #    create and access the WpsDemo database (choco install doesn't add it).
+          $grantSql = "IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = 'NT AUTHORITY\SYSTEM') " +
+                      "CREATE LOGIN [NT AUTHORITY\SYSTEM] FROM WINDOWS; " +
+                      "EXEC sp_addsrvrolemember N'NT AUTHORITY\SYSTEM', N'sysadmin';"
+          sqlcmd -S tcp:localhost,1433 -Q $grantSql -b
+          Write-Host "NT AUTHORITY\SYSTEM granted sysadmin."
 
       - name: Install MSI
         # /qn  = silent (no UI); WIXUI_EXITDIALOGOPTIONALCHECKBOX=0 suppresses
