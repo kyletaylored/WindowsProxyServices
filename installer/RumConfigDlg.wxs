@@ -73,6 +73,11 @@
         <Control Id="EnvEdit" Type="Edit" X="20" Y="176" Width="150" Height="18"
                  Property="DD_RUM_ENV" Text="{30}" TabSkip="no" />
 
+        <!-- SQL Server Express notice -->
+        <Control Id="SqlNote" Type="Text" X="20" Y="212" Width="330" Height="18" NoPrefix="yes">
+          <Text Value="{\WixUI_Font_Normal}SQL Server Express will be installed automatically if not already present on this machine." />
+        </Control>
+
         <!-- Bottom line + navigation buttons -->
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
