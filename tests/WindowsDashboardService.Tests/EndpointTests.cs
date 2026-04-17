@@ -33,7 +33,7 @@ public class EndpointTests : IClassFixture<WebApplicationFactory<Program>>
         var body = await _client.GetFromJsonAsync<JsonElement[]>("/api/services");
         Assert.NotNull(body);
 
-        var names = body.Select(e => e.GetProperty("InstanceName").GetString()).ToArray();
+        var names = body.Select(e => e.GetProperty("instanceName").GetString()).ToArray();
         Assert.Contains("OpenMeteo",  names);
         Assert.Contains("SqlService", names);
     }
@@ -46,11 +46,11 @@ public class EndpointTests : IClassFixture<WebApplicationFactory<Program>>
 
         foreach (var entry in body)
         {
-            Assert.True(entry.TryGetProperty("InstanceName",      out _), "missing InstanceName");
-            Assert.True(entry.TryGetProperty("ServiceDescription", out _), "missing ServiceDescription");
-            Assert.True(entry.TryGetProperty("Port",               out _), "missing Port");
-            Assert.True(entry.TryGetProperty("Status",             out _), "missing Status");
-            Assert.True(entry.TryGetProperty("TestPath",           out _), "missing TestPath");
+            Assert.True(entry.TryGetProperty("instanceName",       out _), "missing instanceName");
+            Assert.True(entry.TryGetProperty("serviceDescription", out _), "missing serviceDescription");
+            Assert.True(entry.TryGetProperty("port",               out _), "missing port");
+            Assert.True(entry.TryGetProperty("status",             out _), "missing status");
+            Assert.True(entry.TryGetProperty("testPath",           out _), "missing testPath");
         }
     }
 
