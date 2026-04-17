@@ -1,0 +1,60 @@
+name: Security
+
+# Runs Datadog Static Analysis and Software Composition Analysis on every PR
+# and on every push to main.  Both jobs run on ubuntu-latest (fast, cheap) and
+# upload results to Datadog — they don't block the build unless a finding
+# exceeds the threshold configured in your Datadog org settings.
+#
+# Required secrets (repo or org):
+#   DD_API_KEY  — Datadog API key
+#   DD_APP_KEY  — Datadog application key
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+
+jobs:
+
+  # ── Static Analysis ─────────────────────────────────────────────────────────
+  #
+  # Scans source code for security vulnerabilities, code quality issues, and
+  # best-practice violations.  Results appear in Datadog > Code Analysis.
+  # ─────────────────────────────────────────────────────────────────────────────
+  static-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Datadog Static Analysis
+        uses: DataDog/datadog-static-analyzer-github-action@v3
+        with:
+          dd_api_key: ${{ secrets.DD_API_KEY }}
+          dd_app_key: ${{ secrets.DD_APP_KEY }}
+          dd_site: ${{ vars.DD_SITE }}
+          cpu_count: 2
+          enable_performance_statistics: false
+
+
+  # ── Software Composition Analysis ───────────────────────────────────────────
+  #
+  # Scans NuGet and npm dependencies for known CVEs and license issues.
+  # Results appear in Datadog > Code Analysis > Libraries.
+  # ─────────────────────────────────────────────────────────────────────────────
+  sca:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Datadog Software Composition Analysis
+        uses: DataDog/datadog-sca-github-action@main
+        with:
+          dd_api_key: ${{ secrets.DD_API_KEY }}
+          dd_app_key: ${{ secrets.DD_APP_KEY }}
+          dd_site: ${{ vars.DD_SITE }}
