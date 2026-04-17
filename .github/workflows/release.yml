@@ -99,14 +99,17 @@ jobs:
         with:
           path: |
             ~/.dotnet/tools
-            ~/.wix
+            ~/AppData/Local/wix
           key: wix-4.0.5
 
       - name: Install WiX Toolset v4
-        if: steps.cache-wix.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          dotnet tool install --global wix --version 4.0.5
+          if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
+            dotnet tool install --global wix --version 4.0.5
+          }
+          # Always run — idempotent, fast if already cached, ensures extensions
+          # are present even on a partial cache restore.
           wix extension add WixToolset.UI.wixext/4.0.5
 
       - name: Restore & Publish
