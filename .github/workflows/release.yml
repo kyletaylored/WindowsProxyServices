@@ -1,20 +1,18 @@
 name: Release
 
-# Triggered three ways:
-#   1. Push to main          — runs build + smoke-test only (no release)
-#   2. Semver tag push       — runs build + smoke-test + creates GitHub Release
+# Triggered two ways:
+#   1. Semver tag push       — runs build + smoke-test + creates GitHub Release
 #        git tag v1.2.3 && git push --tags
-#   3. Manual (Actions tab)  — runs build + smoke-test only (no release)
+#   2. Manual (Actions tab)  — runs build + smoke-test only (no release)
 #        gh workflow run release.yml          # dev build (0.0.0-dev.<run>)
 #        gh workflow run release.yml -f version=1.2.3-beta1
+#
+# Push to main no longer triggers this workflow — security.yml handles that
+# (cheap ubuntu scans only).  Build correctness is verified by ci.yml on PRs.
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
-    paths-ignore:
-      - '**.md'
   workflow_dispatch:
     inputs:
       version:
@@ -411,7 +409,7 @@ jobs:
           Write-Host "WindowsSqlService restarted with tcp:localhost,1433."
 
       - name: Diagnose SQL Server connectivity
-        if: always()
+        if: failure()
         shell: pwsh
         run: |
           Write-Host "=== SQL Server services ==="
