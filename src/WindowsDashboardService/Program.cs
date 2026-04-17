@@ -37,7 +37,7 @@ try
         };
         var rumConfigPath = Path.Combine(AppContext.BaseDirectory, "wwwroot", "rum-config.json");
         File.WriteAllText(rumConfigPath,
-            JsonSerializer.Serialize(rumCfg, new JsonSerializerOptions { WriteIndented = true }));
+            JsonSerializer.Serialize(rumCfg, JsonDefaults.Indented));
     }
 }
 catch { /* non-fatal — RUM is optional */ }
@@ -46,7 +46,7 @@ catch { /* non-fatal — RUM is optional */ }
 var configPath = Path.Combine(AppContext.BaseDirectory, "services.json");
 var instances  = JsonSerializer.Deserialize<InstanceConfig[]>(
     File.ReadAllText(configPath),
-    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
+    JsonDefaults.Insensitive) ?? [];
 
 // Default test path per service — matches the first preset in the dashboard UI
 var testPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -159,7 +159,7 @@ app.MapPost("/api/services/{name}/test", async (string name, TestRequest? req, I
             Url        = url,
             Method     = method,
             StatusCode = (int)resp.StatusCode,
-            Body       = parsed ?? (object)body,
+            Body       = parsed ?? body,
             Error      = (string?)null,
         });
     }
@@ -247,10 +247,10 @@ app.MapPost("/api/custom-request", async (CustomRequest req, IHttpClientFactory 
 
         return Results.Ok(new
         {
-            Url        = req.Url,
+            req.Url,
             Method     = method,
             StatusCode = (int)resp.StatusCode,
-            Body       = parsed ?? (object)body,
+            Body       = parsed ?? body,
             Error      = (string?)null,
         });
     }
@@ -258,7 +258,7 @@ app.MapPost("/api/custom-request", async (CustomRequest req, IHttpClientFactory 
     {
         return Results.Ok(new
         {
-            Url        = req.Url,
+            req.Url,
             Method     = req.Method ?? "GET",
             StatusCode = 0,
             Body       = (object?)null,
@@ -283,3 +283,12 @@ record InstanceConfig(
 record TestRequest(string? Path, string? Method, string? Body);
 
 record CustomRequest(string? Url, string? Method, string? Body);
+
+// Required for WebApplicationFactory<Program> in test projects.
+public partial class Program { }
+
+file static class JsonDefaults
+{
+    internal static readonly JsonSerializerOptions Indented    = new() { WriteIndented             = true };
+    internal static readonly JsonSerializerOptions Insensitive = new() { PropertyNameCaseInsensitive = true };
+}

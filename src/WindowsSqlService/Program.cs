@@ -226,6 +226,9 @@ await app.RunAsync();
 // ---------------------------------------------------------------------------
 record OrderRequest(int CustomerId, int ProductId, int Quantity);
 
+// Required for WebApplicationFactory<Program> in test projects.
+public partial class Program { }
+
 // ---------------------------------------------------------------------------
 // Database setup — runs once at startup; all DDL is idempotent
 // ---------------------------------------------------------------------------

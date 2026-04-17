@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths-ignore:
       - '**.md'
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
 
 jobs:
   build:
@@ -30,6 +34,17 @@ jobs:
 
       - name: Build
         run: dotnet build WindowsProxyServices.sln --no-restore -c Release
+
+      - name: Test
+        run: dotnet test WindowsProxyServices.sln --no-build -c Release --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ github.run_number }}
+          path: TestResults/
+          retention-days: 7
 
       - name: Publish (win-x64 self-contained)
         shell: pwsh

@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace WindowsProxyService;
 
 /// <summary>
@@ -5,6 +7,9 @@ namespace WindowsProxyService;
 /// </summary>
 public sealed class InstanceConfig
 {
+    internal static readonly JsonSerializerOptions JsonOptions =
+        new() { PropertyNameCaseInsensitive = true };
+
     public string InstanceName { get; init; } = "WindowsProxyService";
     public string ServiceDescription { get; init; } = string.Empty;
     public string Host { get; init; } = "+";

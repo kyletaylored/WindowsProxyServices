@@ -14,6 +14,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>WindowsProxyService.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Copy services.json to output directory so it's next to the .exe -->
     <Content Update="services.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

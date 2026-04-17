@@ -1,0 +1,17 @@
+[
+  {
+    "InstanceName": "OpenMeteo",
+    "ServiceDescription": "Proxies requests to the Open-Meteo weather forecast API (no auth required)",
+    "Host": "+",
+    "Port": 15052,
+    "ProxyUrl": "https://api.open-meteo.com"
+  },
+  {
+    "InstanceName": "SqlService",
+    "ServiceDescription": "Exposes a WpsDemo SQL Server database for Datadog DBM demos",
+    "Host": "+",
+    "Port": 15055,
+    "ProxyUrl": "sql://localhost\\SQLEXPRESS/WpsDemo",
+    "ServiceName": "WindowsSqlService"
+  }
+]

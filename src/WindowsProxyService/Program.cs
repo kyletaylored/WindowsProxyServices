@@ -9,25 +9,9 @@ using WindowsProxyService;
 //      --name OpenMeteo --name JsonPlaceholder
 //      --name * | --all              (every service in services.json)
 // ---------------------------------------------------------------------------
-var names    = new List<string>();
-var startAll = false;
-
-for (var i = 0; i < args.Length; i++)
-{
-    if (args[i].Equals("--all", StringComparison.OrdinalIgnoreCase))
-    {
-        startAll = true;
-    }
-    else if (args[i].Equals("--name", StringComparison.OrdinalIgnoreCase))
-    {
-        // Consume all following values that don't begin with '--'
-        for (var j = i + 1; j < args.Length && !args[j].StartsWith("--"); j++, i++)
-        {
-            if (args[j] is "*" or "all") startAll = true;
-            else names.Add(args[j]);
-        }
-    }
-}
+var parsed   = ArgParser.Parse(args);
+var startAll = parsed.StartAll;
+var names    = parsed.Names;
 
 if (!startAll && names.Count == 0)
 {
@@ -48,8 +32,7 @@ if (!File.Exists(servicesJsonPath))
 }
 
 var allInstances = JsonSerializer.Deserialize<List<InstanceConfig>>(
-    File.ReadAllText(servicesJsonPath),
-    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+    File.ReadAllText(servicesJsonPath), InstanceConfig.JsonOptions);
 
 if (allInstances is null || allInstances.Count == 0)
 {
@@ -65,11 +48,9 @@ var proxyInstances = allInstances
              || x.ProxyUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
     .ToList();
 
-var configs = startAll
+List<InstanceConfig> configs = startAll
     ? proxyInstances
-    : proxyInstances
-        .Where(x => names.Contains(x.InstanceName, StringComparer.OrdinalIgnoreCase))
-        .ToList();
+    : [.. proxyInstances.Where(x => names.Contains(x.InstanceName, StringComparer.OrdinalIgnoreCase))];
 
 var missing = names
     .Except(configs.Select(c => c.InstanceName), StringComparer.OrdinalIgnoreCase)
@@ -91,3 +72,6 @@ if (missing.Count > 0)
 var isSingle = configs.Count == 1;
 await Task.WhenAll(configs.Select(cfg => ProxyHost.RunAsync(cfg, args, isSingle)));
 return 0;
+
+// Required for WebApplicationFactory<Program> in test projects.
+public partial class Program { }
