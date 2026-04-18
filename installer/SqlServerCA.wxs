@@ -89,7 +89,7 @@
     -->
     <CustomAction Id="GrantSqlSystemAccessCA"
       Property="SQLGRANT_PSEXE"
-      ExeCommand="-NonInteractive -ExecutionPolicy Bypass -Command &quot;$d=[DateTime]::Now.AddSeconds(120);do{$s=Get-Service 'MSSQL$SQLEXPRESS' -EA Ignore;if($s -and $s.Status -eq 'Running'){break};Start-Sleep 3}while([DateTime]::Now -lt $d);sqlcmd -S 'localhost\SQLEXPRESS' -E -b -l 30 -Q 'IF NOT EXISTS(SELECT 1 FROM sys.server_principals WHERE name=N''NT AUTHORITY\SYSTEM'') CREATE LOGIN [NT AUTHORITY\SYSTEM] FROM WINDOWS';sqlcmd -S 'localhost\SQLEXPRESS' -E -b -l 30 -Q 'IF IS_SRVROLEMEMBER(N''sysadmin'',N''NT AUTHORITY\SYSTEM'')<>1 EXEC sp_addsrvrolemember N''NT AUTHORITY\SYSTEM'',N''sysadmin'''&quot;"
+      ExeCommand="-NonInteractive -ExecutionPolicy Bypass -Command &quot;$d=[DateTime]::Now.AddSeconds(120);do{$s=Get-Service 'MSSQL$SQLEXPRESS' -EA Ignore;if($s -and $s.Status -eq 'Running'){break};Start-Sleep 3}while([DateTime]::Now -lt $d);sqlcmd -S 'localhost\SQLEXPRESS' -E -b -l 30 -Q 'IF NOT EXISTS(SELECT 1 FROM sys.server_principals WHERE name=N''NT AUTHORITY\SYSTEM'') CREATE LOGIN [NT AUTHORITY\SYSTEM] FROM WINDOWS';sqlcmd -S 'localhost\SQLEXPRESS' -E -b -l 30 -Q 'IF IS_SRVROLEMEMBER(N''sysadmin'',N''NT AUTHORITY\SYSTEM'')!=1 EXEC sp_addsrvrolemember N''NT AUTHORITY\SYSTEM'',N''sysadmin'''&quot;"
       Execute="deferred"
       Impersonate="yes"
       Return="ignore" />
