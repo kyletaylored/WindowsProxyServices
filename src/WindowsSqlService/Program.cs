@@ -14,16 +14,38 @@ var connStr = Environment.GetEnvironmentVariable("WPS_SQL_CONNECTION_STRING")
 var app = builder.Build();
 
 // ---------------------------------------------------------------------------
-// Database initialisation — idempotent, runs at startup
+// Database initialisation — idempotent, runs at startup with background retry
 // ---------------------------------------------------------------------------
-try
+var dbReady = false;
+
+async Task TryInitDbAsync()
 {
-    await DbSetup.InitializeAsync(connStr);
-    app.Logger.LogInformation("WpsDemo database initialised.");
+    try
+    {
+        await DbSetup.InitializeAsync(connStr);
+        dbReady = true;
+        app.Logger.LogInformation("WpsDemo database initialised.");
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Database initialisation failed — will retry in background every 30 s.");
+    }
 }
-catch (Exception ex)
+
+await TryInitDbAsync();
+
+// If the first attempt failed (SQL not ready, permissions not yet granted, etc.)
+// keep retrying in the background so the service self-heals once access is in place.
+if (!dbReady)
 {
-    app.Logger.LogWarning(ex, "Database initialisation failed — SQL endpoints may return errors until SQL Server Express is available.");
+    _ = Task.Run(async () =>
+    {
+        while (!dbReady)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30));
+            await TryInitDbAsync();
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
