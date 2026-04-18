@@ -109,12 +109,8 @@
   -->
   <Fragment>
     <UI>
-      <ProgressText Action="InstallSqlExpressCA">
-        Downloading and installing SQL Server Express — this may take several minutes…
-      </ProgressText>
-      <ProgressText Action="GrantSqlSystemAccessCA">
-        Configuring SQL Server access for Windows services…
-      </ProgressText>
+      <ProgressText Action="InstallSqlExpressCA" Message="Downloading and installing SQL Server Express — this may take several minutes…" />
+      <ProgressText Action="GrantSqlSystemAccessCA" Message="Configuring SQL Server access for Windows services…" />
     </UI>
   </Fragment>
 
