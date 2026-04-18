@@ -1,18 +1,14 @@
 name: Security
 
-# Runs Datadog Static Analysis and Software Composition Analysis on every PR
-# and on every push to main.  Both jobs run on ubuntu-latest (fast, cheap) and
-# upload results to Datadog — they don't block the build unless a finding
-# exceeds the threshold configured in your Datadog org settings.
+# Runs Datadog Static Analysis and Software Composition Analysis on every push
+# to main.  Both jobs run on ubuntu-latest (fast, cheap) and upload results to
+# Datadog — they don't block the build unless a finding exceeds the threshold
+# configured in your Datadog org settings.
 #
 # Required secrets (repo or org):
 #   DD_API_KEY  — Datadog API key
 #   DD_APP_KEY  — Datadog application key
 on:
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
   push:
     branches: [main]
     paths-ignore:
