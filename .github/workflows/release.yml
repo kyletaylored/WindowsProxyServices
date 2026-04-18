@@ -137,6 +137,7 @@ jobs:
             --logger trx
 
       - name: Upload coverage to Datadog
+        continue-on-error: true
         uses: DataDog/coverage-upload-github-action@v1
         with:
           api_key: ${{ secrets.DD_API_KEY }}
