@@ -267,6 +267,35 @@ static class DbSetup
             await ExecAsync(conn, @"
                 IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = 'WpsDemo')
                     CREATE DATABASE WpsDemo;");
+
+            // SQL Server Express enables AUTO_CLOSE by default, which shuts the
+            // database down when the last connection closes.  The next connection
+            // must then wait for recovery to finish, causing transient 4060 errors.
+            // Disable it so WpsDemo stays open between connections.
+            // Wrapped in TRY/CATCH because ALTER DATABASE requires sysadmin or
+            // dbcreator — non-fatal if the caller lacks that permission.
+            await ExecAsync(conn, @"
+                BEGIN TRY
+                    IF EXISTS (SELECT 1 FROM sys.databases
+                               WHERE name = 'WpsDemo' AND is_auto_close_on = 1)
+                        ALTER DATABASE WpsDemo SET AUTO_CLOSE OFF WITH NO_WAIT;
+                END TRY
+                BEGIN CATCH END CATCH");
+
+            // Wait for WpsDemo to be fully ONLINE before we try to connect to it.
+            // A freshly created or auto-closed database may briefly be in recovery.
+            for (var i = 0; i < 30; i++)
+            {
+                using var check = conn.CreateCommand();
+                check.CommandText =
+                    "SELECT state_desc FROM sys.databases WHERE name = 'WpsDemo'";
+                var state = await check.ExecuteScalarAsync() as string;
+                if (state == "ONLINE") break;
+                if (i == 29)
+                    throw new InvalidOperationException(
+                        $"WpsDemo did not reach ONLINE state within 30 s (current: {state})");
+                await Task.Delay(1000);
+            }
         }
 
         // 2. Tables, stored procs, and seed data (connect to WpsDemo)
