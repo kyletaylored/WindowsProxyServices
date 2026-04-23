@@ -57,6 +57,14 @@ var testPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     ["SqlService"]      = "/api/products",
 };
 
+// Register health poller — polls /api/status on each service every 60 s
+// so there is always a recent trace visible in Datadog.
+builder.Services.AddHostedService(sp =>
+    new HealthPoller(
+        instances,
+        sp.GetRequiredService<IHttpClientFactory>(),
+        sp.GetRequiredService<ILogger<HealthPoller>>()));
+
 // ---------------------------------------------------------------------------
 // Pipeline
 // ---------------------------------------------------------------------------
@@ -291,4 +299,48 @@ file static class JsonDefaults
 {
     internal static readonly JsonSerializerOptions Indented    = new() { WriteIndented             = true };
     internal static readonly JsonSerializerOptions Insensitive = new() { PropertyNameCaseInsensitive = true };
+}
+
+// ---------------------------------------------------------------------------
+// Background health poller — hits /api/status on every service once per minute
+// ---------------------------------------------------------------------------
+class HealthPoller(
+    InstanceConfig[] instances,
+    IHttpClientFactory httpClientFactory,
+    ILogger<HealthPoller> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        // Give all services time to finish starting before the first poll.
+        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        do { await PollAllAsync(stoppingToken); }
+        while (await timer.WaitForNextTickAsync(stoppingToken));
+    }
+
+    private async Task PollAllAsync(CancellationToken ct)
+    {
+        foreach (var inst in instances)
+        {
+            if (ct.IsCancellationRequested) return;
+            var url = $"http://localhost:{inst.Port}/api/status";
+            try
+            {
+                var client = httpClientFactory.CreateClient();
+                client.Timeout = TimeSpan.FromSeconds(5);
+                var resp = await client.GetAsync(url, ct);
+                logger.LogInformation(
+                    "Health {Service}: HTTP {Status}",
+                    inst.InstanceName, (int)resp.StatusCode);
+            }
+            catch (OperationCanceledException) { return; }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    "Health {Service}: unreachable — {Error}",
+                    inst.InstanceName, ex.Message);
+            }
+        }
+    }
 }
