@@ -4,16 +4,18 @@
 
   Two custom actions run in sequence during every install:
 
-  1. InstallSqlExpressCA   (condition: no SQL Server instance found AND NOT REMOVE)
-     Downloads and installs SQL Server Express silently.  Skipped when any
-     SQL Server instance (SQLEXPRESS or MSSQLSERVER) is already registered.  NT AUTHORITY\SYSTEM is
-     passed as both the service account and a sysadmin so the Windows SQL
-     service can connect immediately after a fresh install.
+  1. InstallSqlExpressCA   (condition: SQLEXPRESS absent AND NOT REMOVE)
+     Downloads and installs SQL Server Express silently.  Skipped only when
+     a SQLEXPRESS named instance is already registered — a different SQL Server
+     instance (e.g. MSSQLSERVER) does NOT satisfy this check, because we cannot
+     rely on having sysadmin rights on an existing corporate instance.
+     NT AUTHORITY\SYSTEM is passed as both the service account and a sysadmin
+     so the Windows SQL service can connect immediately after a fresh install.
 
   2. GrantSqlSystemAccessCA   (condition: NOT REMOVE)
      Runs on every install — whether SQL Express was pre-existing or was
-     just installed above.  Waits up to 120 s for the MSSQL$SQLEXPRESS
-     service to reach Running, then uses sqlcmd (as the installer user) to:
+     just installed above.  Waits up to 120 s for MSSQL$SQLEXPRESS to reach
+     Running, then uses System.Data.SqlClient (as the installer user) to:
        a. Create the NT AUTHORITY\SYSTEM Windows login if absent.
        b. Add it to the sysadmin fixed server role if not already a member.
      Return="ignore" — failure is non-fatal.  WindowsSqlService retries the
@@ -29,27 +31,23 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Fragment>
 
+    <!-- ── Detect an existing SQLEXPRESS instance ──────────────────────── -->
     <!--
-      Detect any existing SQL Server instance.
-      Checks for SQLEXPRESS first, then the default instance (MSSQLSERVER).
-      Either match sets ANYSQL_INSTALLED and skips the Express download.
+      Only checks for SQLEXPRESS specifically.  A different SQL Server instance
+      (MSSQLSERVER, named instance) does not satisfy this — we install our own
+      Express instance so we control the service account and sysadmin grants.
     -->
-    <Property Id="ANYSQL_INSTALLED">
+    <Property Id="SQLEXPRESS_INSTALLED">
       <RegistrySearch Id="SqlExpressSearch"
         Root="HKLM"
         Key="SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL"
         Name="SQLEXPRESS"
         Type="raw" />
-      <RegistrySearch Id="SqlDefaultSearch"
-        Root="HKLM"
-        Key="SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL"
-        Name="MSSQLSERVER"
-        Type="raw" />
     </Property>
 
 
     <!-- ══════════════════════════════════════════════════════════════════
-         1. INSTALL SQL EXPRESS (skipped when already present)
+         1. INSTALL SQL EXPRESS (skipped only when SQLEXPRESS already present)
     ══════════════════════════════════════════════════════════════════ -->
 
     <SetProperty Id="SQLEXPRESS_PSEXE"
@@ -65,7 +63,7 @@
     -->
     <CustomAction Id="InstallSqlExpressCA"
       Property="SQLEXPRESS_PSEXE"
-      ExeCommand="-NonInteractive -ExecutionPolicy Bypass -Command &quot;$k=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' -EA Ignore;if(-not($k -and ($k.SQLEXPRESS -or $k.MSSQLSERVER))){$d=[IO.Path]::Combine($env:TEMP,'sqlexpr_wps.exe');[Net.ServicePointManager]::SecurityProtocol='Tls12';(New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/p/?LinkID=2216019',$d);Start-Process $d '/QS /ACTION=Install /FEATURES=SQLEngine /INSTANCENAME=SQLEXPRESS /SQLSVCACCOUNT=&quot;&quot;NT AUTHORITY\SYSTEM&quot;&quot; /SQLSYSADMINACCOUNTS=&quot;&quot;BUILTIN\Administrators&quot;&quot; &quot;&quot;NT AUTHORITY\SYSTEM&quot;&quot; /AGTSVCSTARTUPTYPE=Disabled /BROWSERSVCSTARTUPTYPE=Automatic /IACCEPTSQLSERVERLICENSETERMS' -Wait;Remove-Item $d -EA Ignore}&quot;"
+      ExeCommand="-NonInteractive -ExecutionPolicy Bypass -Command &quot;if(-not(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' -Name SQLEXPRESS -EA Ignore)){$d=[IO.Path]::Combine($env:TEMP,'sqlexpr_wps.exe');[Net.ServicePointManager]::SecurityProtocol='Tls12';(New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/p/?LinkID=2216019',$d);Start-Process $d '/QS /ACTION=Install /FEATURES=SQLEngine /INSTANCENAME=SQLEXPRESS /SQLSVCACCOUNT=&quot;&quot;NT AUTHORITY\SYSTEM&quot;&quot; /SQLSYSADMINACCOUNTS=&quot;&quot;BUILTIN\Administrators&quot;&quot; &quot;&quot;NT AUTHORITY\SYSTEM&quot;&quot; /AGTSVCSTARTUPTYPE=Disabled /BROWSERSVCSTARTUPTYPE=Automatic /IACCEPTSQLSERVERLICENSETERMS' -Wait;Remove-Item $d -EA Ignore}&quot;"
       Execute="deferred"
       Impersonate="no"
       Return="ignore" />
@@ -73,7 +71,7 @@
     <InstallExecuteSequence>
       <Custom Action="InstallSqlExpressCA"
         After="InstallFiles"
-        Condition="NOT ANYSQL_INSTALLED AND NOT REMOVE" />
+        Condition="NOT SQLEXPRESS_INSTALLED AND NOT REMOVE" />
     </InstallExecuteSequence>
 
 
@@ -88,25 +86,22 @@
 
     <!--
       Runs as the installer user (Impersonate="yes") so it connects to SQL
-      Server with the elevated admin token, which is a sysadmin on any
-      normally-configured SQL Server instance (BUILTIN\Administrators).
+      Server with the elevated admin token, which is a sysadmin on the
+      SQLEXPRESS instance (BUILTIN\Administrators is added during install above).
 
       Uses System.Data.SqlClient via Windows PowerShell 5.1 (.NET Framework)
       rather than sqlcmd, because sqlcmd is not present on SQL Express Basic
       installs that do not include the client tools package.
 
       Steps:
-        1. Detect the installed SQL Server instance from the registry.
-           Prefers SQLEXPRESS; falls back to the default instance (MSSQLSERVER)
-           for full SQL Server installs (2019, 2022, etc.).
-        2. Wait up to 120 s for the detected service to reach Running state.
-        3. Open a .NET SqlConnection as the elevated installer user.
-        4. Create the NT AUTHORITY\SYSTEM Windows login if absent.
-        5. Add SYSTEM to the sysadmin fixed server role if not already a member.
+        1. Wait up to 120 s for MSSQL$SQLEXPRESS to reach Running state.
+        2. Open a .NET SqlConnection as the elevated installer user.
+        3. Create the NT AUTHORITY\SYSTEM Windows login if absent.
+        4. Add SYSTEM to the sysadmin fixed server role if not already a member.
     -->
     <CustomAction Id="GrantSqlSystemAccessCA"
       Property="SQLGRANT_PSEXE"
-      ExeCommand="-NonInteractive -ExecutionPolicy Bypass -Command &quot;$inst=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' -EA Ignore);$svcName=if($inst -and $inst.SQLEXPRESS){'MSSQL$SQLEXPRESS'}elseif($inst -and $inst.MSSQLSERVER){'MSSQLSERVER'}else{'MSSQL$SQLEXPRESS'};$server=if($svcName -eq 'MSSQLSERVER'){'localhost'}else{'localhost\SQLEXPRESS'};$d=[DateTime]::Now.AddSeconds(120);do{$s=Get-Service $svcName -EA Ignore;if($s -and $s.Status -eq 'Running'){break};Start-Sleep 3}while([DateTime]::Now -lt $d);try{Add-Type -AssemblyName System.Data -EA Ignore;$cs='Server='+$server+';Integrated Security=true;TrustServerCertificate=true;Connection Timeout=15';$c=New-Object System.Data.SqlClient.SqlConnection($cs);$c.Open();$q=$c.CreateCommand();$q.CommandText='IF NOT EXISTS(SELECT 1 FROM sys.server_principals WHERE name=N''NT AUTHORITY\SYSTEM'') CREATE LOGIN [NT AUTHORITY\SYSTEM] FROM WINDOWS';$q.ExecuteNonQuery()|Out-Null;$q.CommandText='IF IS_SRVROLEMEMBER(N''sysadmin'',N''NT AUTHORITY\SYSTEM'')!=1 EXEC sp_addsrvrolemember N''NT AUTHORITY\SYSTEM'',N''sysadmin''';$q.ExecuteNonQuery()|Out-Null;$c.Dispose()}catch{}&quot;"
+      ExeCommand="-NonInteractive -ExecutionPolicy Bypass -Command &quot;$d=[DateTime]::Now.AddSeconds(120);do{$s=Get-Service 'MSSQL$SQLEXPRESS' -EA Ignore;if($s -and $s.Status -eq 'Running'){break};Start-Sleep 3}while([DateTime]::Now -lt $d);try{Add-Type -AssemblyName System.Data -EA Ignore;$c=New-Object System.Data.SqlClient.SqlConnection('Server=localhost\SQLEXPRESS;Integrated Security=true;TrustServerCertificate=true;Connection Timeout=15');$c.Open();$q=$c.CreateCommand();$q.CommandText='IF NOT EXISTS(SELECT 1 FROM sys.server_principals WHERE name=N''NT AUTHORITY\SYSTEM'') CREATE LOGIN [NT AUTHORITY\SYSTEM] FROM WINDOWS';$q.ExecuteNonQuery()|Out-Null;$q.CommandText='IF IS_SRVROLEMEMBER(N''sysadmin'',N''NT AUTHORITY\SYSTEM'')!=1 EXEC sp_addsrvrolemember N''NT AUTHORITY\SYSTEM'',N''sysadmin''';$q.ExecuteNonQuery()|Out-Null;$c.Dispose()}catch{}&quot;"
       Execute="deferred"
       Impersonate="yes"
       Return="ignore" />

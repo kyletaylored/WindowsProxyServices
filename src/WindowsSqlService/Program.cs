@@ -1,6 +1,5 @@
 using System.Data;
 using Microsoft.Data.SqlClient;
-using Microsoft.Win32;
 
 // ---------------------------------------------------------------------------
 // Host setup
@@ -9,30 +8,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService(o => o.ServiceName = "WindowsSqlService");
 builder.WebHost.UseUrls("http://+:5055");
 
+// The MSI always installs SQL Server Express as the SQLEXPRESS named instance
+// and grants NT AUTHORITY\SYSTEM sysadmin during setup.  Override with the
+// WPS_SQL_CONNECTION_STRING environment variable to point at a different instance.
 var connStr = Environment.GetEnvironmentVariable("WPS_SQL_CONNECTION_STRING")
-    ?? $"Server={DetectSqlServer()};Database=WpsDemo;Integrated Security=true;TrustServerCertificate=true;Connect Timeout=5;";
-
-// Reads HKLM to find which SQL Server instance is installed.
-// Prefers SQLEXPRESS (Express/Developer installs); falls back to the default
-// instance (MSSQLSERVER) for full SQL Server installs (2019, 2022, etc.).
-static string DetectSqlServer()
-{
-    try
-    {
-        using var key = Registry.LocalMachine.OpenSubKey(
-            @"SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL");
-        if (key is not null)
-        {
-            if (key.GetValue("SQLEXPRESS")   is not null) return @"localhost\SQLEXPRESS";
-            if (key.GetValue("MSSQLSERVER")  is not null) return "localhost";
-            // Any other named instance — pick the first one found
-            var names = key.GetValueNames();
-            if (names.Length > 0) return $@"localhost\{names[0]}";
-        }
-    }
-    catch { /* non-fatal — fall through to default */ }
-    return @"localhost\SQLEXPRESS"; // safe default; service will retry
-}
+    ?? @"Server=localhost\SQLEXPRESS;Database=WpsDemo;Integrated Security=true;TrustServerCertificate=true;Connect Timeout=5;";
 
 var app = builder.Build();
 
@@ -287,9 +267,27 @@ static class DbSetup
         using (var conn = new SqlConnection(masterStr))
         {
             await conn.OpenAsync();
-            await ExecAsync(conn, @"
-                IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = 'WpsDemo')
-                    CREATE DATABASE WpsDemo;");
+
+            // Error 262 = CREATE DATABASE permission denied.
+            // This happens on full SQL Server installs (2019, 2022) where
+            // NT AUTHORITY\SYSTEM is not in the sysadmin or dbcreator role —
+            // common on corporate/domain machines where BUILTIN\Administrators
+            // has been removed from sysadmin.  Treat as non-fatal: a DBA may
+            // have pre-created WpsDemo, or the MSI's GrantSqlSystemAccessCA
+            // may not have had sufficient privileges.  We proceed and check
+            // the ONLINE state below — if the database exists we continue
+            // normally; if it doesn't we throw with an actionable message.
+            try
+            {
+                await ExecAsync(conn, @"
+                    IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = 'WpsDemo')
+                        CREATE DATABASE WpsDemo;");
+            }
+            catch (SqlException ex) when (ex.Number == 262)
+            {
+                // Logged by the caller; we continue to the ONLINE check below.
+                _ = ex;
+            }
 
             // SQL Server Express enables AUTO_CLOSE by default, which shuts the
             // database down when the last connection closes.  The next connection
@@ -314,6 +312,13 @@ static class DbSetup
                     "SELECT state_desc FROM sys.databases WHERE name = 'WpsDemo'";
                 var state = await check.ExecuteScalarAsync() as string;
                 if (state == "ONLINE") break;
+                if (state is null)
+                    throw new InvalidOperationException(
+                        "WpsDemo database does not exist and NT AUTHORITY\\SYSTEM " +
+                        "lacks CREATE DATABASE permission. A SQL Server administrator " +
+                        "must run the following on this instance:\n" +
+                        "  EXEC sp_addsrvrolemember N'NT AUTHORITY\\SYSTEM', N'dbcreator'\n" +
+                        "The service will retry automatically once permissions are in place.");
                 if (i == 29)
                     throw new InvalidOperationException(
                         $"WpsDemo did not reach ONLINE state within 30 s (current: {state})");
