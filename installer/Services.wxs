@@ -127,7 +127,7 @@
         <ServiceInstall
           Id="SvcDashInstall"
           Name="WindowsDashboardService"
-          DisplayName="Windows Dashboard Service"
+          DisplayName="Windows Proxy Service - Dashboard"
           Description="Web dashboard for monitoring and testing the proxy services (http://localhost:5051)"
           Type="ownProcess"
           Start="auto"
@@ -171,7 +171,7 @@
         <ServiceInstall
           Id="SvcSqlInstall"
           Name="WindowsSqlService"
-          DisplayName="Windows SQL Service"
+          DisplayName="Windows Proxy Service - SQL Service"
           Description="Exposes a WpsDemo SQL Server database for Datadog DBM and SQL tracing demos (http://localhost:5055)"
           Type="ownProcess"
           Start="auto"

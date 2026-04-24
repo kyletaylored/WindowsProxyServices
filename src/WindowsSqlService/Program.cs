@@ -1,5 +1,6 @@
 using System.Data;
 using Microsoft.Data.SqlClient;
+using Microsoft.Win32;
 
 // ---------------------------------------------------------------------------
 // Host setup
@@ -9,7 +10,29 @@ builder.Host.UseWindowsService(o => o.ServiceName = "WindowsSqlService");
 builder.WebHost.UseUrls("http://+:5055");
 
 var connStr = Environment.GetEnvironmentVariable("WPS_SQL_CONNECTION_STRING")
-    ?? @"Server=localhost\SQLEXPRESS;Database=WpsDemo;Integrated Security=true;TrustServerCertificate=true;Connect Timeout=5;";
+    ?? $"Server={DetectSqlServer()};Database=WpsDemo;Integrated Security=true;TrustServerCertificate=true;Connect Timeout=5;";
+
+// Reads HKLM to find which SQL Server instance is installed.
+// Prefers SQLEXPRESS (Express/Developer installs); falls back to the default
+// instance (MSSQLSERVER) for full SQL Server installs (2019, 2022, etc.).
+static string DetectSqlServer()
+{
+    try
+    {
+        using var key = Registry.LocalMachine.OpenSubKey(
+            @"SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL");
+        if (key is not null)
+        {
+            if (key.GetValue("SQLEXPRESS")   is not null) return @"localhost\SQLEXPRESS";
+            if (key.GetValue("MSSQLSERVER")  is not null) return "localhost";
+            // Any other named instance — pick the first one found
+            var names = key.GetValueNames();
+            if (names.Length > 0) return $@"localhost\{names[0]}";
+        }
+    }
+    catch { /* non-fatal — fall through to default */ }
+    return @"localhost\SQLEXPRESS"; // safe default; service will retry
+}
 
 var app = builder.Build();
 
@@ -24,11 +47,11 @@ async Task TryInitDbAsync()
     {
         await DbSetup.InitializeAsync(connStr);
         dbReady = true;
-        app.Logger.LogInformation("WpsDemo database initialised.");
+        app.Logger.LogInformation("WpsDemo database initialized.");
     }
     catch (Exception ex)
     {
-        app.Logger.LogWarning(ex, "Database initialisation failed — will retry in background every 30 s.");
+        app.Logger.LogWarning(ex, "Database initialization failed — will retry in background every 30 s.");
     }
 }
 
@@ -82,13 +105,13 @@ app.MapGet("/api/products", async () =>
     while (await rdr.ReadAsync())
         rows.Add(new
         {
-            id          = rdr.GetInt32(0),
-            name        = rdr.GetString(1),
+            id = rdr.GetInt32(0),
+            name = rdr.GetString(1),
             description = rdr.GetString(2),
-            price       = rdr.GetDecimal(3),
-            category    = rdr.GetString(4),
-            stock       = rdr.GetInt32(5),
-            createdAt   = rdr.GetDateTime(6),
+            price = rdr.GetDecimal(3),
+            category = rdr.GetString(4),
+            stock = rdr.GetInt32(5),
+            createdAt = rdr.GetDateTime(6),
         });
     return Results.Ok(rows);
 });
@@ -107,10 +130,10 @@ app.MapGet("/api/customers/{id:int}", async (int id) =>
     if (!await rdr.ReadAsync()) return Results.NotFound(new { error = $"Customer {id} not found" });
     return Results.Ok(new
     {
-        id        = rdr.GetInt32(0),
+        id = rdr.GetInt32(0),
         firstName = rdr.GetString(1),
-        lastName  = rdr.GetString(2),
-        email     = rdr.GetString(3),
+        lastName = rdr.GetString(2),
+        email = rdr.GetString(3),
         createdAt = rdr.GetDateTime(4),
     });
 });
@@ -136,14 +159,14 @@ app.MapGet("/api/orders", async () =>
     while (await rdr.ReadAsync())
         rows.Add(new
         {
-            id         = rdr.GetInt32(0),
-            customer   = rdr.GetString(1),
-            product    = rdr.GetString(2),
-            quantity   = rdr.GetInt32(3),
-            unitPrice  = rdr.GetDecimal(4),
+            id = rdr.GetInt32(0),
+            customer = rdr.GetString(1),
+            product = rdr.GetString(2),
+            quantity = rdr.GetInt32(3),
+            unitPrice = rdr.GetDecimal(4),
             totalPrice = rdr.GetDecimal(5),
-            status     = rdr.GetString(6),
-            orderDate  = rdr.GetDateTime(7),
+            status = rdr.GetString(6),
+            orderDate = rdr.GetDateTime(7),
         });
     return Results.Ok(rows);
 });
@@ -177,17 +200,17 @@ app.MapPost("/api/orders", async (OrderRequest req) =>
             OUTPUT INSERTED.Id
             VALUES (@CustomerId, @ProductId, @Qty, @UnitPrice, @Total, 'Pending', GETUTCDATE())";
         cmd.Parameters.AddWithValue("@CustomerId", req.CustomerId);
-        cmd.Parameters.AddWithValue("@ProductId",  req.ProductId);
-        cmd.Parameters.AddWithValue("@Qty",        req.Quantity);
-        cmd.Parameters.AddWithValue("@UnitPrice",  unitPrice);
-        cmd.Parameters.AddWithValue("@Total",      unitPrice * req.Quantity);
+        cmd.Parameters.AddWithValue("@ProductId", req.ProductId);
+        cmd.Parameters.AddWithValue("@Qty", req.Quantity);
+        cmd.Parameters.AddWithValue("@UnitPrice", unitPrice);
+        cmd.Parameters.AddWithValue("@Total", unitPrice * req.Quantity);
         newId = (int)(await cmd.ExecuteScalarAsync())!;
     }
 
     return Results.Created($"/api/orders/{newId}", new
     {
-        id         = newId,
-        status     = "Pending",
+        id = newId,
+        status = "Pending",
         totalPrice = unitPrice * req.Quantity,
     });
 });
@@ -208,8 +231,8 @@ app.MapGet("/api/reports/summary", async () =>
     while (await rdr.ReadAsync())
         rows.Add(new
         {
-            status       = rdr.GetString(0),
-            orderCount   = rdr.GetInt32(1),
+            status = rdr.GetString(0),
+            orderCount = rdr.GetInt32(1),
             totalRevenue = rdr.GetDecimal(2),
         });
     return Results.Ok(rows);
@@ -230,12 +253,12 @@ app.MapGet("/api/customers/{id:int}/orders", async (int id) =>
     while (await rdr.ReadAsync())
         rows.Add(new
         {
-            orderId    = rdr.GetInt32(0),
-            product    = rdr.GetString(1),
-            quantity   = rdr.GetInt32(2),
+            orderId = rdr.GetInt32(0),
+            product = rdr.GetString(1),
+            quantity = rdr.GetInt32(2),
             totalPrice = rdr.GetDecimal(3),
-            status     = rdr.GetString(4),
-            orderDate  = rdr.GetDateTime(5),
+            status = rdr.GetString(4),
+            orderDate = rdr.GetDateTime(5),
         });
     if (rows.Count == 0) return Results.NotFound(new { error = $"No orders found for customer {id}" });
     return Results.Ok(rows);
@@ -260,7 +283,7 @@ static class DbSetup
     {
         // 1. Create the WpsDemo database if it doesn't exist (connect to master)
         var masterStr = new SqlConnectionStringBuilder(connStr)
-            { InitialCatalog = "master" }.ToString();
+        { InitialCatalog = "master" }.ToString();
         using (var conn = new SqlConnection(masterStr))
         {
             await conn.OpenAsync();

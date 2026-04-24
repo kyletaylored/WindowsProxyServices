@@ -12,7 +12,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private readonly NotifyIcon      _tray;
     private readonly HttpClient      _http    = new() { Timeout = TimeSpan.FromSeconds(5) };
-    private readonly List<string>    _names   = LoadServiceNames();
+    private readonly List<(string Name, string ScmName)> _services = LoadServices();
     private readonly ContextMenuStrip _menu;
 
     public TrayApplicationContext()
@@ -53,10 +53,10 @@ public sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
 
         // One sub-menu per service  (StatusOffset = 5 items above)
-        foreach (var name in _names)
+        foreach (var svc in _services)
         {
-            var sub = new ToolStripMenuItem(name);
-            var n   = name; // capture for lambda
+            var sub = new ToolStripMenuItem(svc.Name);
+            var n   = svc.Name; // capture for lambda
 
             var startItem = new ToolStripMenuItem("Start");
             startItem.Click   += (_, _) => ControlService(n, "start");
@@ -91,19 +91,19 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private void RefreshStatus()
     {
-        for (var i = 0; i < _names.Count; i++)
+        for (var i = 0; i < _services.Count; i++)
         {
-            var svcName = $"WindowsProxyService.{_names[i]}";
+            var (name, scmName) = _services[i];
             string dot;
             try
             {
-                using var sc = new ServiceController(svcName);
+                using var sc = new ServiceController(scmName);
                 dot = sc.Status == ServiceControllerStatus.Running ? "● " : "○ ";
             }
-            catch { dot = "? "; }
+            catch { dot = "○ "; }
 
             if (StatusOffset + i < _menu.Items.Count)
-                ((ToolStripMenuItem)_menu.Items[StatusOffset + i]).Text = dot + _names[i];
+                ((ToolStripMenuItem)_menu.Items[StatusOffset + i]).Text = dot + name;
         }
     }
 
@@ -114,8 +114,8 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private async void ControlAll(string action)
     {
-        foreach (var name in _names)
-            await PostAsync($"/api/services/{name}/{action}");
+        foreach (var svc in _services)
+            await PostAsync($"/api/services/{svc.Name}/{action}");
     }
 
     private async void ControlService(string name, string action) =>
@@ -149,18 +149,27 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static List<string> LoadServiceNames()
+    private static List<(string Name, string ScmName)> LoadServices()
     {
         try
         {
             var path = Path.Combine(AppContext.BaseDirectory, "services.json");
             var docs = JsonSerializer.Deserialize<JsonElement[]>(File.ReadAllText(path))!;
-            return [.. docs.Select(d => d.GetProperty("InstanceName").GetString()!)];
+            return [.. docs.Select(d =>
+            {
+                var name    = d.GetProperty("InstanceName").GetString()!;
+                var scmName = d.TryGetProperty("ServiceName", out var sn) && sn.ValueKind == JsonValueKind.String
+                    ? sn.GetString()!
+                    : $"WindowsProxyService.{name}";
+                return (name, scmName);
+            })];
         }
         catch
         {
             // Fall back to the known static list so the tray works even when run standalone
-            return ["OpenMeteo", "JsonPlaceholder", "DatadogDemo"];
+            return [("OpenMeteo", "WindowsProxyService.OpenMeteo"),
+                    ("JsonPlaceholder", "WindowsProxyService.JsonPlaceholder"),
+                    ("DatadogDemo", "WindowsProxyService.DatadogDemo")];
         }
     }
 
