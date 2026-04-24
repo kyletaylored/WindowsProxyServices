@@ -109,6 +109,7 @@ jobs:
           # Always run — idempotent, fast if already cached, ensures extensions
           # are present even on a partial cache restore.
           wix extension add WixToolset.UI.wixext/4.0.5
+          wix extension add WixToolset.Util.wixext/4.0.5
 
       - name: Restore & Publish
         shell: pwsh
@@ -232,6 +233,7 @@ jobs:
             -d "Manufacturer=Kyle Taylor" `
             -d "PublishDir=$pubDir" `
             -ext WixToolset.UI.wixext `
+            -ext WixToolset.Util.wixext `
             -o "installer\$msiName"
 
           Write-Host "MSI built: installer\$msiName"

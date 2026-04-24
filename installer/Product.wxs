@@ -13,7 +13,8 @@
       msiexec /x WindowsProxyServices-1.2.3.msi /quiet
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-  xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+  xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
   <Package Name="Windows Proxy Services" Manufacturer="$(var.Manufacturer)" Version="$(var.Version)" UpgradeCode="F1E2D3C4-B5A6-7890-DEAD-BEEF00000001" Scope="perMachine">
 
@@ -121,6 +122,19 @@
     <InstallExecuteSequence>
       <Custom Action="LaunchTrayApp" After="InstallFinalize" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT REMOVE" />
     </InstallExecuteSequence>
+
+    <!--
+      Close the tray app before the installer modifies or removes files.
+      WM_CLOSE is sent first; if the process does not exit within the timeout,
+      TerminateProcess kills it.  RebootPrompt="no" keeps the dialog away.
+      Runs on both install (upgrade path removes the old tray exe) and uninstall.
+    -->
+    <util:CloseApplication
+      Id="CloseTrayApp"
+      Target="WindowsTrayApp.exe"
+      CloseMessage="yes"
+      RebootPrompt="no"
+      TerminateProcess="yes" />
 
     <Feature Id="ProductFeature" Title="Windows Proxy Services" Level="1">
       <!-- All runtime files (DLLs, services.json, …) — generated at build time -->
