@@ -73,6 +73,23 @@
     <WixVariable Id="WixUIBannerBmp" Value="installer\banner.bmp" />
     <WixVariable Id="WixUIDialogBmp" Value="installer\dialog.bmp" />
 
+    <!--
+      Pin the default install path to the Windows system drive ([WindowsVolume]
+      resolves to e.g. "C:\").  Without this, MSI sets TARGETDIR to whichever
+      volume has the most free space, so machines with large secondary drives
+      (D:, F:, G: …) end up installing there instead.
+
+      Condition="NOT INSTALLFOLDER" means this only fires when the property
+      has not already been supplied — command-line overrides, reinstalls that
+      restore the previous path, and /quiet deployments with INSTALLFOLDER=...
+      are all unaffected.
+    -->
+    <SetProperty Id="INSTALLFOLDER"
+      Value="[WindowsVolume]Services\WindowsProxyService"
+      Sequence="both"
+      Before="CostFinalize"
+      Condition="NOT INSTALLFOLDER" />
+
 
     <!-- ── Datadog RUM installer properties ────────────────────────────── -->
     <!--
