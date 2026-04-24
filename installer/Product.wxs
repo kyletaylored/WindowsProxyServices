@@ -134,7 +134,7 @@
       Target="WindowsTrayApp.exe"
       CloseMessage="yes"
       RebootPrompt="no"
-      TerminateProcess="yes" />
+      TerminateProcess="0" />
 
     <Feature Id="ProductFeature" Title="Windows Proxy Services" Level="1">
       <!-- All runtime files (DLLs, services.json, …) — generated at build time -->
