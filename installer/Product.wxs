@@ -20,6 +20,15 @@
 
     <SummaryInformation Description="YARP-based reverse proxy Windows services for Datadog APM tracing." />
 
+    <!--
+      Enable verbose MSI logging automatically for every install/uninstall.
+      Log is written to %TEMP%\MSI*.log — find the latest one with:
+        Get-ChildItem $env:TEMP\MSI*.log | Sort-Object LastWriteTime | Select-Object -Last 1
+      Combined with the CA log at C:\Windows\Temp\wps-install.log this gives
+      a full picture of what happened during setup.
+    -->
+    <Property Id="MsiLogging" Value="voicewarmup!" />
+
     <!-- Remove the old version automatically when upgrading; block downgrades. -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of Windows Proxy Services is already installed." />
 

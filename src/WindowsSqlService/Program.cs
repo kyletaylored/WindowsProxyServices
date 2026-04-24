@@ -21,6 +21,9 @@ var app = builder.Build();
 // ---------------------------------------------------------------------------
 var dbReady = false;
 
+app.Logger.LogInformation("Target SQL Server: {Server}",
+    new SqlConnectionStringBuilder(connStr).DataSource);
+
 async Task TryInitDbAsync()
 {
     try
