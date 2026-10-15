@@ -1,3 +1,4 @@
+using System;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -80,9 +81,15 @@ internal static class ProxyHost
 
         app.MapReverseProxy();
 
+        var sanitizedProxyUrl = config.ProxyUrl;
+        if (Uri.TryCreate(config.ProxyUrl, UriKind.Absolute, out var uri))
+        {
+            sanitizedProxyUrl = uri.GetComponents(UriComponents.AbsoluteUri & ~UriComponents.UserInfo, UriFormat.UriEscaped);
+        }
+
         logger.LogInformation(
             "Proxy '{InstanceName}' starting on {Host}:{Port}, forwarding to {ProxyUrl}",
-            config.InstanceName, config.Host, config.Port, config.ProxyUrl);
+            config.InstanceName, config.Host, config.Port, sanitizedProxyUrl);
 
         await app.RunAsync();
     }
