@@ -1,6 +1,6 @@
 # WindowsProxyServices
 
-A test harness for validating **Datadog SSI (Single Step Installation) auto-instrumentation** on Windows. It provisions multiple named .NET Windows Services — each a lightweight HTTP reverse proxy — giving you a realistic set of live .NET processes to target with Workload Selection rules.
+A test harness for validating **Datadog SSI (Single Step Installation) auto-instrumentation** on Windows. It provisions multiple named .NET Windows Services — each a lightweight HTTP reverse proxy — giving you a realistic set of live .NET processes for SSI to instrument.
 
 A single compiled binary (`WindowsProxyService.exe`) is deployed as multiple Windows Service instances, each forwarding traffic to a different upstream URL and listening on its own port. A **web dashboard** and **system tray app** are included to make it easy to start/stop services, fire test requests, and inspect responses without touching the terminal.
 
@@ -28,7 +28,6 @@ installer/
   Product.wxs                  WiX v4 MSI package definition
   Services.wxs                 Windows service + shortcut registrations
   License.rtf                  Installer license/disclaimer
-rules.toml                     Datadog Workload Selection rules (compile before use)
 ```
 
 ## Quick Start
@@ -242,78 +241,31 @@ Defines all proxy instances. Located at `src/WindowsProxyService/services.json` 
 
 ---
 
-## Datadog SSI — Workload Selection
+## Datadog SSI
 
-This project exists to test Datadog's **host-level SSI auto-instrumentation** for .NET on Windows. With SSI enabled, the Datadog tracer automatically attaches to .NET processes on startup. **Workload Selection** rules let you control exactly which processes are instrumented.
+This project exists to test Datadog's **host-level SSI auto-instrumentation** for .NET on Windows. With SSI enabled, the Datadog tracer automatically attaches to every .NET process on startup — no Datadog-specific code or configuration is needed in the apps themselves.
 
 ### Prerequisites
 
-1. Install the Datadog Agent with SSI enabled:
+Install the Datadog Agent with SSI enabled:
 
 ```powershell
 $p = Start-Process -Wait -PassThru msiexec -ArgumentList '/qn /i "https://windows-agent.datadoghq.com/datadog-agent-7-latest.amd64.msi" /log C:\Windows\SystemTemp\install-datadog.log APIKEY="<YOUR_API_KEY>" SITE="datadoghq.com" DD_APM_INSTRUMENTATION_ENABLED="host" DD_APM_INSTRUMENTATION_LIBRARIES="dotnet:3"'
 ```
 
-2. Install the rule compiler:
+Restart the services afterwards so the tracer attaches:
 
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/DataDog/dd-policy-engine/releases/download/v0.1.1/dd-rules-converter-win-x64.zip" -OutFile "dd-rules-converter.zip"
-Expand-Archive -Path "dd-rules-converter.zip" -DestinationPath "C:\tools"
-```
-
-### Compile and apply rules.toml
-
-Edit `rules.toml` in the repo root, then compile it:
-
-```powershell
-C:\tools\dd-rules-converter.exe -rules rules.toml -output "C:\ProgramData\Datadog\managed\rc-orgwide-wls-policy.bin"
-```
-
-The tracer loads the compiled policy automatically the next time a .NET process starts — no agent restart needed. Restart the proxy services to pick up new rules:
-
-```powershell
-Get-Service WindowsProxyService.* | Restart-Service
-```
-
-### How the proxy services map to rule selectors
-
-All proxy instances share one binary, so `process.executable` matches all of them at once. Use `dotnet.dll` or a naming convention for per-instance targeting.
-
-| Selector             | Value                         | Matches                        |
-| -------------------- | ----------------------------- | ------------------------------ |
-| `process.executable` | `WindowsProxyService.exe`     | All proxy instances            |
-| `process.executable` | `*ProxyService.exe`           | All proxy instances (wildcard) |
-| `dotnet.dll`         | `WindowsProxyService.dll`     | All proxy instances (by DLL)   |
-| `process.executable` | `WindowsSqlService.exe`       | SQL service only               |
-| `process.executable` | `WindowsDashboardService.exe` | Dashboard service only         |
-
-### Example rules (see rules.toml for full file)
-
-```toml
-[instrument-all-proxy-instances]
-description = "Instrument all WindowsProxyService instances"
-instrument  = true
-expression  = "process.executable:WindowsProxyService.exe runtime.language:dotnet"
-
-[instrument-by-name-suffix]
-description = "Instrument any .NET process whose executable ends with ProxyService.exe"
-instrument  = true
-expression  = "process.executable:*ProxyService.exe runtime.language:dotnet"
+Get-Service WindowsProxyService.*, WindowsDashboardService, WindowsSqlService | Restart-Service
 ```
 
 ### Troubleshooting
 
-Enable debug logging to inspect rule evaluation:
+Enable debug logging to inspect tracer startup:
 
 ```powershell
 $env:DD_TRACE_DEBUG = "true"
 $env:DD_TRACE_LOG_DIRECTORY = "C:\logs\datadog"
-```
-
-Confirm the compiled policy file exists:
-
-```
-C:\ProgramData\Datadog\managed\rc-orgwide-wls-policy.bin
 ```
 
 ---

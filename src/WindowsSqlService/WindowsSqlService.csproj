@@ -4,7 +4,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>WindowsSqlService</AssemblyName>
+    <AssemblyName>WindowsProxyService.Sql</AssemblyName>
     <RootNamespace>WindowsSqlService</RootNamespace>
   </PropertyGroup>
 

@@ -159,9 +159,9 @@ jobs:
 
           $excludedExes = @(
             'WindowsProxyService.exe',
-            'WindowsDashboardService.exe',
+            'WindowsProxyService.Dashboard.exe',
             'WindowsTrayApp.exe',
-            'WindowsSqlService.exe'
+            'WindowsProxyService.Sql.exe'
           )
 
           $allFiles  = Get-ChildItem -Path $publishDir -File -Recurse |

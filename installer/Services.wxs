@@ -122,7 +122,7 @@
       ════════════════════════════════════════════════════════════════════ -->
       <Component Id="CompDashboard" Guid="D4580001-0000-0000-0000-000000000001">
         <File Id="FileDashExe"
-              Source="$(var.PublishDir)\WindowsDashboardService.exe"
+              Source="$(var.PublishDir)\WindowsProxyService.Dashboard.exe"
               KeyPath="yes" />
         <ServiceInstall
           Id="SvcDashInstall"
@@ -166,7 +166,7 @@
       ════════════════════════════════════════════════════════════════════ -->
       <Component Id="CompSqlService" Guid="D4580001-0000-0000-0000-000000000003">
         <File Id="FileSqlExe"
-              Source="$(var.PublishDir)\WindowsSqlService.exe"
+              Source="$(var.PublishDir)\WindowsProxyService.Sql.exe"
               KeyPath="yes" />
         <ServiceInstall
           Id="SvcSqlInstall"
