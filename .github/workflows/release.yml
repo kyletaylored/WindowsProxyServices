@@ -341,7 +341,7 @@ jobs:
         # Uses the Particular/install-sql-server-action which installs via
         # Chocolatey and waits (up to 150s) for the instance to be ready.
         # Much more reliable than downloading the installer ourselves.
-        uses: Particular/install-sql-server-action@main
+        uses: Particular/install-sql-server-action@d91a5a756bd35b3cefdaddb93a05bc36596e6b01 # v1.5.0 (Chocolatey-based; v3+ requires WSL/Docker)
         with:
           catalog: WpsDemo
           connection-string-env-var: UNUSED_SQL_CONNECTION_STRING
