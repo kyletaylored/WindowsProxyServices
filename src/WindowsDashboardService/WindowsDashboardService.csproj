@@ -4,7 +4,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>WindowsDashboardService</AssemblyName>
+    <AssemblyName>WindowsProxyService.Dashboard</AssemblyName>
     <RootNamespace>WindowsDashboardService</RootNamespace>
   </PropertyGroup>
 

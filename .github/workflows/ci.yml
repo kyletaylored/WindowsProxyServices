@@ -60,9 +60,9 @@ jobs:
         run: |
           $required = @(
             'WindowsProxyService.exe',
-            'WindowsDashboardService.exe',
+            'WindowsProxyService.Dashboard.exe',
             'WindowsTrayApp.exe',
-            'WindowsSqlService.exe',
+            'WindowsProxyService.Sql.exe',
             'services.json'
           )
           foreach ($f in $required) {
