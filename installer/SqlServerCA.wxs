@@ -112,18 +112,17 @@
         Condition="NOT REMOVE" />
     </InstallExecuteSequence>
 
-  </Fragment>
-
-  <!--
-    ActionText table entries — displayed in the progress dialog's status area
-    while each custom action runs.  Without these the progress bar shows the raw
-    action ID ("InstallSqlExpressCA") or nothing at all.
-  -->
-  <Fragment>
+    <!--
+      ActionText table entries — displayed in the progress dialog's status area
+      while each custom action runs.  Without these the progress bar shows the raw
+      action ID ("InstallSqlExpressCA") or nothing at all.  Kept in this fragment
+      so they are linked whenever the custom actions are.
+    -->
     <UI>
       <ProgressText Action="InstallSqlExpressCA" Message="Downloading and installing SQL Server Express — this may take several minutes…" />
       <ProgressText Action="GrantSqlSystemAccessCA" Message="Configuring SQL Server access for Windows services…" />
     </UI>
+
   </Fragment>
 
 </Wix>
