@@ -34,12 +34,12 @@
 
     <!-- ── Scripts installed alongside the services ───────────────────── -->
     <ComponentGroup Id="SqlScriptComponents" Directory="INSTALLFOLDER">
-      <Component Id="CompSqlInstallScript">
+      <Component Id="CompSqlInstallScript" Guid="D4580001-0000-0000-0000-000000000004">
         <File Id="FileSqlInstallPs1"
               Source="$(sys.SOURCEFILEDIR)scripts\Install-SqlExpress.ps1"
               KeyPath="yes" />
       </Component>
-      <Component Id="CompSqlGrantScript">
+      <Component Id="CompSqlGrantScript" Guid="D4580001-0000-0000-0000-000000000005">
         <File Id="FileSqlGrantPs1"
               Source="$(sys.SOURCEFILEDIR)scripts\Grant-SqlSystemAccess.ps1"
               KeyPath="yes" />
