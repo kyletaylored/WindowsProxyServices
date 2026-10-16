@@ -1,11 +1,12 @@
 <#
-  Grant-SqlSystemAccess.ps1 — run by the MSI's GrantSqlSystemAccessCA
-  (deferred, impersonating the elevated installing user).
+  Grant-SqlSystemAccess.ps1 — gives NT AUTHORITY\SYSTEM sysadmin on SQLEXPRESS.
 
-  Runs on every install, whether SQL Express was pre-existing or was just
-  installed by Install-SqlExpress.ps1:
+  Run by the MSI's GrantSqlSystemAccessCA (deferred, impersonating the elevated
+  installing user) when SQLEXPRESS was pre-existing, and by
+  Install-SqlExpress.ps1 (as SYSTEM) right after it installs SQL Express:
     1. Wait up to 120 s for MSSQL$SQLEXPRESS to reach Running.
-    2. Connect as the installing user (a sysadmin via BUILTIN\Administrators).
+    2. Connect as the current user (a sysadmin via BUILTIN\Administrators, or
+       SYSTEM itself after a fresh install).
     3. Create the NT AUTHORITY\SYSTEM login if absent and add it to sysadmin.
 
   Uses System.Data.SqlClient (Windows PowerShell 5.1 / .NET Framework) rather
@@ -38,7 +39,7 @@ try {
     Add-Type -AssemblyName System.Data
     $conn = New-Object System.Data.SqlClient.SqlConnection('Server=localhost\SQLEXPRESS;Integrated Security=true;TrustServerCertificate=true;Connection Timeout=15')
     $conn.Open()
-    Write-Log 'Connected to SQLEXPRESS as installer user'
+    Write-Log "Connected to SQLEXPRESS as $([Security.Principal.WindowsIdentity]::GetCurrent().Name)"
 
     $cmd = $conn.CreateCommand()
     $cmd.CommandText = "IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'NT AUTHORITY\SYSTEM') CREATE LOGIN [NT AUTHORITY\SYSTEM] FROM WINDOWS"

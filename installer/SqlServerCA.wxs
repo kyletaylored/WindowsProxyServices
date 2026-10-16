@@ -2,19 +2,19 @@
 <!--
   SqlServerCA.wxs — SQL Server Express install + permission setup custom actions.
 
-  Two custom actions run in sequence during every install:
-
   1. InstallSqlExpressCA   (condition: SQLEXPRESS absent AND NOT REMOVE)
-     Runs scripts\Install-SqlExpress.ps1 to download and install SQL Server
-     Express silently.  Skipped only when a SQLEXPRESS named instance is already
-     registered — a different SQL Server instance (e.g. MSSQLSERVER) does NOT
-     satisfy this check, because we cannot rely on having sysadmin rights on an
-     existing corporate instance.
+     Runs scripts\Install-SqlExpress.ps1 -Schedule, which registers and starts
+     a one-off SYSTEM scheduled task that downloads and installs SQL Server
+     Express once this MSI has finished.  SQL setup cannot run inside the MSI
+     (missing token privileges, Windows Installer mutex).  The task also runs
+     Grant-SqlSystemAccess.ps1 after setup.  Skipped only when a SQLEXPRESS
+     named instance is already registered — a different SQL Server instance
+     (e.g. MSSQLSERVER) does NOT satisfy this check, because we cannot rely on
+     having sysadmin rights on an existing corporate instance.
 
-  2. GrantSqlSystemAccessCA   (condition: NOT REMOVE)
-     Runs scripts\Grant-SqlSystemAccess.ps1 on every install — whether SQL
-     Express was pre-existing or was just installed above — to give
-     NT AUTHORITY\SYSTEM sysadmin on the SQLEXPRESS instance.
+  2. GrantSqlSystemAccessCA   (condition: SQLEXPRESS present AND NOT REMOVE)
+     Runs scripts\Grant-SqlSystemAccess.ps1 to give NT AUTHORITY\SYSTEM
+     sysadmin on a pre-existing SQLEXPRESS instance.
 
   Both are Return="ignore" — failure is non-fatal.  WindowsSqlService retries
   the connection at every startup via DbSetup.InitializeAsync, so the service
@@ -72,12 +72,12 @@
 
 
     <!-- ══════════════════════════════════════════════════════════════════
-         1. INSTALL SQL EXPRESS (skipped only when SQLEXPRESS already present)
-         Runs as SYSTEM (Impersonate="no") — SQL setup requires elevation.
+         1. SCHEDULE SQL EXPRESS INSTALL (skipped when SQLEXPRESS already present)
+         Runs as SYSTEM (Impersonate="no") to register a SYSTEM scheduled task.
     ══════════════════════════════════════════════════════════════════ -->
     <CustomAction Id="InstallSqlExpressCA"
       Property="WPS_POWERSHELL"
-      ExeCommand="-NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[#FileSqlInstallPs1]&quot;"
+      ExeCommand="-NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[#FileSqlInstallPs1]&quot; -Schedule"
       Execute="deferred"
       Impersonate="no"
       Return="ignore" />
@@ -90,7 +90,8 @@
 
 
     <!-- ══════════════════════════════════════════════════════════════════
-         2. GRANT NT AUTHORITY\SYSTEM SYSADMIN (always runs on install)
+         2. GRANT NT AUTHORITY\SYSTEM SYSADMIN (pre-existing SQLEXPRESS only;
+         a fresh install is granted by the scheduled task above)
          Runs as the installing user (Impersonate="yes") so it connects with
          the elevated admin token, which is sysadmin via BUILTIN\Administrators.
     ══════════════════════════════════════════════════════════════════ -->
@@ -104,7 +105,7 @@
     <InstallExecuteSequence>
       <Custom Action="GrantSqlSystemAccessCA"
         After="InstallSqlExpressCA"
-        Condition="NOT REMOVE" />
+        Condition="SQLEXPRESS_INSTALLED AND NOT REMOVE" />
     </InstallExecuteSequence>
 
     <!--
@@ -113,7 +114,7 @@
       action ID ("InstallSqlExpressCA") or nothing at all.
     -->
     <UI>
-      <ProgressText Action="InstallSqlExpressCA" Message="Downloading and installing SQL Server Express — this may take several minutes…" />
+      <ProgressText Action="InstallSqlExpressCA" Message="Scheduling SQL Server Express installation…" />
       <ProgressText Action="GrantSqlSystemAccessCA" Message="Configuring SQL Server access for Windows services…" />
     </UI>
 

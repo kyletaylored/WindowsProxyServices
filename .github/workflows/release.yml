@@ -742,8 +742,8 @@ jobs:
           Write-Host "No SQLEXPRESS instance found — fresh-host path will be exercised."
 
       - name: Install MSI
-        # Blocks until InstallSqlExpressCA finishes downloading and installing
-        # SQL Express, which typically takes several minutes.
+        # InstallSqlExpressCA only schedules the SQL Express install; it runs
+        # as a SYSTEM scheduled task once msiexec returns.
         shell: pwsh
         run: |
           $msi     = "installer\${{ needs.version.outputs.msi_name }}"
@@ -761,10 +761,19 @@ jobs:
         run: |
           $log = 'C:\Windows\Temp\wps-install.log'
           if (-not (Test-Path $log)) { Write-Error "$log not found — SQL custom actions did not run."; exit 1 }
-          $content = Get-Content $log -Raw
+
+          # Wait for the scheduled SQL Express install to finish (or fail).
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          do {
+            $content = Get-Content $log -Raw
+            if ($content -match 'granted sysadmin successfully|\[Sql(Install|Grant)\] ERROR|SQL Express installer exited with code (?!(0|3010)\b)') { break }
+            Start-Sleep -Seconds 15
+          } while ($sw.Elapsed.TotalMinutes -lt 25)
+          Write-Host "Waited $([int]$sw.Elapsed.TotalSeconds)s for the SQL Express install task."
           Write-Host "=== $log ==="; Write-Host $content
 
           $checks = @(
+            @{ Desc = 'SQL Express install task scheduled'; Pattern = 'Scheduled task .+ started' },
             @{ Desc = 'SQL Express download triggered';  Pattern = 'SQLEXPRESS not found - downloading SQL Express' },
             @{ Desc = 'SQL Express installer succeeded'; Pattern = 'SQL Express installer exited with code (0|3010)\b' },
             @{ Desc = 'SYSTEM granted sysadmin';         Pattern = 'NT AUTHORITY\\SYSTEM granted sysadmin successfully' }
@@ -826,6 +835,13 @@ jobs:
           Get-WinEvent -LogName Application -MaxEvents 30 -ErrorAction SilentlyContinue |
               Where-Object { $_.Message -match 'WindowsSql|WpsDemo|SQLEXPRESS' } |
               Format-List TimeCreated, LevelDisplayName, Message
+          Get-ScheduledTask -TaskName 'WindowsProxyService-InstallSqlExpress' -ErrorAction SilentlyContinue |
+              Get-ScheduledTaskInfo | Format-List TaskName, LastRunTime, LastTaskResult
+          # upload-artifact only accepts paths under the workspace.
+          New-Item -ItemType Directory -Path sql-logs -Force | Out-Null
+          Copy-Item 'C:\Windows\Temp\wps-install.log' sql-logs -ErrorAction SilentlyContinue
+          Get-ChildItem "$env:ProgramFiles\Microsoft SQL Server\*\Setup Bootstrap\Log" -Directory -ErrorAction SilentlyContinue |
+              ForEach-Object { Copy-Item $_.FullName "sql-logs\setup-$($_.Parent.Parent.Name)" -Recurse -ErrorAction SilentlyContinue }
 
       - name: Uninstall MSI
         if: always()
@@ -846,7 +862,7 @@ jobs:
           path: |
             install.log
             uninstall.log
-            C:\Windows\Temp\wps-install.log
+            sql-logs/
           retention-days: 7
 
 
