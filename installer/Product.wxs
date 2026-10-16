@@ -145,19 +145,15 @@
       RebootPrompt="no"
       TerminateProcess="0" />
 
-    <!--
-      SQL Server Express install + SYSTEM access grant (SqlServerCA.wxs).
-      WiX only links a Fragment when something references it, so these refs
-      are what pull the custom actions into the MSI.
-    -->
-    <CustomActionRef Id="InstallSqlExpressCA" />
-    <CustomActionRef Id="GrantSqlSystemAccessCA" />
-
     <Feature Id="ProductFeature" Title="Windows Proxy Services" Level="1">
       <!-- All runtime files (DLLs, services.json, …) — generated at build time -->
       <ComponentGroupRef Id="ProductComponents" />
       <!-- WindowsProxyService.exe + all five Windows service registrations -->
       <ComponentGroupRef Id="ServiceComponents" />
+      <!-- SQL Express install/grant scripts + their custom actions (SqlServerCA.wxs).
+           WiX only links a Fragment when something references it, so this ref is
+           what pulls the SQL custom actions into the MSI. -->
+      <ComponentGroupRef Id="SqlScriptComponents" />
     </Feature>
 
   </Package>
