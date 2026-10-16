@@ -693,13 +693,186 @@ jobs:
           retention-days: 7
 
 
+  # ── 3b. Smoke test — fresh host (no SQL Server) ──────────────────────────
+  #
+  # The main smoke test pre-installs SQL Express, so the MSI's
+  # InstallSqlExpressCA is skipped there.  This job installs the MSI on a
+  # runner with no SQLEXPRESS instance and verifies the installer downloads
+  # and installs it, grants SYSTEM access, and that WindowsSqlService reaches
+  # the database with its default connection string (no CI overrides).
+  #
+  # Both SQL custom actions are Return="ignore", so a failed SQL install does
+  # not fail the MSI — the assertions below are what catch it.
+  # ─────────────────────────────────────────────────────────────────────────
+  smoke-test-fresh-sql:
+    needs: [version, build]
+    runs-on: windows-latest
+    timeout-minutes: 45
+    environment:
+      name: smoke-test
+
+    steps:
+      - name: Download MSI artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: msi-${{ needs.version.outputs.semver }}
+          path: installer
+
+      - name: Trust signing certificate
+        shell: pwsh
+        run: |
+          $cerPath = "installer\WindowsProxyServices.cer"
+          if (Test-Path $cerPath) {
+            Import-Certificate -FilePath $cerPath -CertStoreLocation Cert:\LocalMachine\TrustedPublisher | Out-Null
+            Write-Host "Imported signing certificate."
+          } else {
+            Write-Host "No certificate in artifact — unsigned build, skipping trust step."
+          }
+
+      - name: Verify no SQLEXPRESS instance is present
+        # If the runner image ever ships SQLEXPRESS, the MSI would skip its own
+        # install and this job would silently stop testing the fresh-host path.
+        shell: pwsh
+        run: |
+          $existing = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' -Name SQLEXPRESS -ErrorAction SilentlyContinue
+          if ($existing -or (Get-Service 'MSSQL$SQLEXPRESS' -ErrorAction SilentlyContinue)) {
+            Write-Error "Runner already has a SQLEXPRESS instance — fresh-host install path cannot be tested."
+            exit 1
+          }
+          Write-Host "No SQLEXPRESS instance found — fresh-host path will be exercised."
+
+      - name: Install MSI
+        # InstallSqlExpressCA only schedules the SQL Express install; it runs
+        # as a SYSTEM scheduled task once msiexec returns.
+        shell: pwsh
+        run: |
+          $msi     = "installer\${{ needs.version.outputs.msi_name }}"
+          $msiArgs = "/i `"$msi`" /qn /l*v install.log WIXUI_EXITDIALOGOPTIONALCHECKBOX=0"
+          $sw      = [Diagnostics.Stopwatch]::StartNew()
+          $proc    = Start-Process msiexec -ArgumentList $msiArgs -Wait -PassThru
+          Write-Host "msiexec exited with $($proc.ExitCode) after $([int]$sw.Elapsed.TotalSeconds)s."
+          if ($proc.ExitCode -ne 0) {
+            Get-Content install.log -ErrorAction SilentlyContinue | Select-Object -Last 50
+            exit $proc.ExitCode
+          }
+
+      - name: Verify installer custom actions
+        shell: pwsh
+        run: |
+          $log = 'C:\Windows\Temp\wps-install.log'
+          if (-not (Test-Path $log)) { Write-Error "$log not found — SQL custom actions did not run."; exit 1 }
+
+          # Wait for the scheduled SQL Express install to finish (or fail).
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          do {
+            $content = Get-Content $log -Raw
+            if ($content -match 'granted sysadmin successfully|\[Sql(Install|Grant)\] ERROR|SQL Express installer exited with code (?!(0|3010)\b)') { break }
+            Start-Sleep -Seconds 15
+          } while ($sw.Elapsed.TotalMinutes -lt 25)
+          Write-Host "Waited $([int]$sw.Elapsed.TotalSeconds)s for the SQL Express install task."
+          Write-Host "=== $log ==="; Write-Host $content
+
+          $checks = @(
+            @{ Desc = 'SQL Express install task scheduled'; Pattern = 'Scheduled task .+ started' },
+            @{ Desc = 'SQL Express download triggered';  Pattern = 'SQLEXPRESS not found - downloading SQL Express' },
+            @{ Desc = 'SQL Express installer succeeded'; Pattern = 'SQL Express installer exited with code (0|3010)\b' },
+            @{ Desc = 'SYSTEM granted sysadmin';         Pattern = 'NT AUTHORITY\\SYSTEM granted sysadmin successfully' }
+          )
+          $failed = 0
+          foreach ($c in $checks) {
+            if ($content -match $c.Pattern) { Write-Host "OK   $($c.Desc)" }
+            else { Write-Host "FAIL $($c.Desc)"; $failed++ }
+          }
+          if ($content -match '\[Sql(Install|Grant)\] ERROR') { Write-Host "FAIL custom action logged an ERROR"; $failed++ }
+          if ($failed -gt 0) { exit 1 }
+
+      - name: Verify SQL Express service is running
+        shell: pwsh
+        run: |
+          $svc = Get-Service 'MSSQL$SQLEXPRESS' -ErrorAction SilentlyContinue
+          if (-not $svc) { Write-Error 'MSSQL$SQLEXPRESS service not found.'; exit 1 }
+          if ($svc.Status -ne 'Running') { Write-Error "MSSQL`$SQLEXPRESS status: $($svc.Status)"; exit 1 }
+          Write-Host "OK  MSSQL`$SQLEXPRESS is Running ($($svc.StartType))."
+
+      - name: Wait for SqlService to be database-ready (default connection string)
+        shell: pwsh
+        run: |
+          $envKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\WindowsSqlService\Environment'
+          $override = (Get-ItemProperty $envKey -ErrorAction SilentlyContinue).WPS_SQL_CONNECTION_STRING
+          if ($override) { Write-Error "WPS_SQL_CONNECTION_STRING is set ($override) — expected the default."; exit 1 }
+
+          $deadline = [DateTime]::UtcNow.AddSeconds(180)
+          do {
+            try {
+              $body = Invoke-RestMethod -Uri 'http://localhost:5055/api/status' -TimeoutSec 8 -ErrorAction Stop
+              if ($body.status -eq 'ok') { break }
+              Write-Host "SqlService not ready yet (status=$($body.status)) — retrying..."
+            } catch {
+              Write-Host "SqlService not responding yet — retrying..."
+            }
+            Start-Sleep -Seconds 5
+          } while ([DateTime]::UtcNow -lt $deadline)
+
+          $final = Invoke-RestMethod -Uri 'http://localhost:5055/api/status' -TimeoutSec 8 -ErrorAction SilentlyContinue
+          if ($final.status -ne 'ok') {
+            Write-Error "SqlService did not become database-ready within 180s (status=$($final.status) error=$($final.error))"
+            exit 1
+          }
+          Write-Host "OK  SqlService connected via localhost\SQLEXPRESS · products=$($final.productCount)"
+
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content $env:GITHUB_STEP_SUMMARY "## 🗄️ Fresh-host SQL Express install`n`n✅ MSI installed SQL Express and WindowsSqlService connected with the default connection string (products: $($final.productCount))."
+          }
+
+      - name: Diagnose SQL Server state
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-Service -Name 'MSSQL*','SQLBrowser','WindowsSqlService' -ErrorAction SilentlyContinue |
+              Select-Object Name, Status, StartType | Format-Table -AutoSize
+          Get-ChildItem "$env:ProgramFiles\Microsoft SQL Server\*\Setup Bootstrap\Log\Summary.txt" -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "=== $($_.FullName) ==="; Get-Content $_.FullName -Tail 40 }
+          Get-WinEvent -LogName Application -MaxEvents 30 -ErrorAction SilentlyContinue |
+              Where-Object { $_.Message -match 'WindowsSql|WpsDemo|SQLEXPRESS' } |
+              Format-List TimeCreated, LevelDisplayName, Message
+          Get-ScheduledTask -TaskName 'WindowsProxyService-InstallSqlExpress' -ErrorAction SilentlyContinue |
+              Get-ScheduledTaskInfo | Format-List TaskName, LastRunTime, LastTaskResult
+          # upload-artifact only accepts paths under the workspace.
+          New-Item -ItemType Directory -Path sql-logs -Force | Out-Null
+          Copy-Item 'C:\Windows\Temp\wps-install.log' sql-logs -ErrorAction SilentlyContinue
+          Get-ChildItem "$env:ProgramFiles\Microsoft SQL Server\*\Setup Bootstrap\Log" -Directory -ErrorAction SilentlyContinue |
+              ForEach-Object { Copy-Item $_.FullName "sql-logs\setup-$($_.Parent.Parent.Name)" -Recurse -ErrorAction SilentlyContinue }
+
+      - name: Uninstall MSI
+        if: always()
+        shell: pwsh
+        run: |
+          $msi  = "installer\${{ needs.version.outputs.msi_name }}"
+          $proc = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn /l*v uninstall.log" -Wait -PassThru
+          if ($proc.ExitCode -ne 0) {
+            Get-Content uninstall.log -ErrorAction SilentlyContinue | Select-Object -Last 50
+            exit $proc.ExitCode
+          }
+
+      - name: Upload installer logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-logs-fresh-sql-${{ needs.version.outputs.semver }}
+          path: |
+            install.log
+            uninstall.log
+            sql-logs/
+          retention-days: 7
+
+
   # ── 4. Create GitHub Release ─────────────────────────────────────────────
   #
   # Only runs on tag pushes (not workflow_dispatch).  Downloads the already-
   # built MSI from the artifact store — no rebuild needed.
   # ─────────────────────────────────────────────────────────────────────────
   release:
-    needs: [version, smoke-test]
+    needs: [version, smoke-test, smoke-test-fresh-sql]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     environment: production

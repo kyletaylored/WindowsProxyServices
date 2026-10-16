@@ -150,6 +150,10 @@
       <ComponentGroupRef Id="ProductComponents" />
       <!-- WindowsProxyService.exe + all five Windows service registrations -->
       <ComponentGroupRef Id="ServiceComponents" />
+      <!-- SQL Express install/grant scripts + their custom actions (SqlServerCA.wxs).
+           WiX only links a Fragment when something references it, so this ref is
+           what pulls the SQL custom actions into the MSI. -->
+      <ComponentGroupRef Id="SqlScriptComponents" />
     </Feature>
 
   </Package>

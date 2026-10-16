@@ -2,34 +2,49 @@
 <!--
   SqlServerCA.wxs — SQL Server Express install + permission setup custom actions.
 
-  Two custom actions run in sequence during every install:
-
   1. InstallSqlExpressCA   (condition: SQLEXPRESS absent AND NOT REMOVE)
-     Downloads and installs SQL Server Express silently.  Skipped only when
-     a SQLEXPRESS named instance is already registered — a different SQL Server
-     instance (e.g. MSSQLSERVER) does NOT satisfy this check, because we cannot
-     rely on having sysadmin rights on an existing corporate instance.
-     NT AUTHORITY\SYSTEM is passed as both the service account and a sysadmin
-     so the Windows SQL service can connect immediately after a fresh install.
+     Runs scripts\Install-SqlExpress.ps1 -Schedule, which registers and starts
+     a one-off SYSTEM scheduled task that downloads and installs SQL Server
+     Express once this MSI has finished.  SQL setup cannot run inside the MSI
+     (missing token privileges, Windows Installer mutex).  The task also runs
+     Grant-SqlSystemAccess.ps1 after setup.  Skipped only when a SQLEXPRESS
+     named instance is already registered — a different SQL Server instance
+     (e.g. MSSQLSERVER) does NOT satisfy this check, because we cannot rely on
+     having sysadmin rights on an existing corporate instance.
 
-  2. GrantSqlSystemAccessCA   (condition: NOT REMOVE)
-     Runs on every install — whether SQL Express was pre-existing or was
-     just installed above.  Waits up to 120 s for MSSQL$SQLEXPRESS to reach
-     Running, then uses System.Data.SqlClient (as the installer user) to:
-       a. Create the NT AUTHORITY\SYSTEM Windows login if absent.
-       b. Add it to the sysadmin fixed server role if not already a member.
-     Return="ignore" — failure is non-fatal.  WindowsSqlService retries the
-     connection at every startup via DbSetup.InitializeAsync, so the service
-     recovers automatically once access is in place.
+  2. GrantSqlSystemAccessCA   (condition: SQLEXPRESS present AND NOT REMOVE)
+     Runs scripts\Grant-SqlSystemAccess.ps1 to give NT AUTHORITY\SYSTEM
+     sysadmin on a pre-existing SQLEXPRESS instance.
 
-  Quoting notes (XML → command-line → PowerShell → SQL installer):
-    &quot;       in XML attribute   → "  in the MSI
-    ""           in command-line     → "  after C-runtime parsing (inside "…")
-    '…''…''…'  PS single-quoted    → literal '  (no substitution)
-    "…"          SQL installer arg   → quoted value stripped by its C runtime
+  Both are Return="ignore" — failure is non-fatal.  WindowsSqlService retries
+  the connection at every startup via DbSetup.InitializeAsync, so the service
+  recovers automatically once access is in place.  Both scripts log to
+  C:\Windows\Temp\wps-install.log.
+
+  The PowerShell lives in .ps1 files installed with the product rather than
+  inline in ExeCommand: ExeCommand is an MSI Formatted string, where [...] is a
+  property reference and {...} groups containing an unresolved one are deleted,
+  which silently mangles inline PowerShell ([IO.Path], [DateTime], …).
+
+  This fragment is pulled into the MSI by the SqlScriptComponents
+  ComponentGroupRef in Product.wxs.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Fragment>
+
+    <!-- ── Scripts installed alongside the services ───────────────────── -->
+    <ComponentGroup Id="SqlScriptComponents" Directory="INSTALLFOLDER">
+      <Component Id="CompSqlInstallScript" Guid="D4580001-0000-0000-0000-000000000004">
+        <File Id="FileSqlInstallPs1"
+              Source="$(sys.SOURCEFILEDIR)scripts\Install-SqlExpress.ps1"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="CompSqlGrantScript" Guid="D4580001-0000-0000-0000-000000000005">
+        <File Id="FileSqlGrantPs1"
+              Source="$(sys.SOURCEFILEDIR)scripts\Grant-SqlSystemAccess.ps1"
+              KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
 
     <!-- ── Detect an existing SQLEXPRESS instance ──────────────────────── -->
     <!--
@@ -45,25 +60,24 @@
         Type="raw" />
     </Property>
 
-
-    <!-- ══════════════════════════════════════════════════════════════════
-         1. INSTALL SQL EXPRESS (skipped only when SQLEXPRESS already present)
-    ══════════════════════════════════════════════════════════════════ -->
-
-    <SetProperty Id="SQLEXPRESS_PSEXE"
-      Value="[SystemFolder]WindowsPowerShell\v1.0\powershell.exe"
+    <!--
+      64-bit Windows PowerShell (System64Folder, not SystemFolder → SysWOW64),
+      so the scripts' HKLM:\SOFTWARE registry reads are not redirected to
+      WOW6432Node.
+    -->
+    <SetProperty Id="WPS_POWERSHELL"
+      Value="[System64Folder]WindowsPowerShell\v1.0\powershell.exe"
       Sequence="execute"
       Before="InstallSqlExpressCA" />
 
-    <!--
-      /SQLSVCACCOUNT and /SQLSYSADMINACCOUNTS both include NT AUTHORITY\SYSTEM
-      so the WindowsSqlService can connect without any post-install grants on
-      a fresh machine.  BUILTIN\Administrators is also listed so the installer
-      user retains sysadmin access for the GrantSqlSystemAccessCA below.
-    -->
+
+    <!-- ══════════════════════════════════════════════════════════════════
+         1. SCHEDULE SQL EXPRESS INSTALL (skipped when SQLEXPRESS already present)
+         Runs as SYSTEM (Impersonate="no") to register a SYSTEM scheduled task.
+    ══════════════════════════════════════════════════════════════════ -->
     <CustomAction Id="InstallSqlExpressCA"
-      Property="SQLEXPRESS_PSEXE"
-      ExeCommand="-NonInteractive -ExecutionPolicy Bypass -Command &quot;$log='C:\Windows\Temp\wps-install.log';function wl($m){&quot;&quot;$$(Get-Date -f 'yyyy-MM-dd HH:mm:ss') [SqlInstall] $m&quot;&quot;|Add-Content $log -EA Ignore};wl 'CA started';if(-not(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' -Name SQLEXPRESS -EA Ignore)){wl 'SQLEXPRESS not found - downloading SQL Express';$d=[IO.Path]::Combine($env:TEMP,'sqlexpr_wps.exe');try{[Net.ServicePointManager]::SecurityProtocol='Tls12';(New-Object Net.WebClient).DownloadFile('https://go.microsoft.com/fwlink/p/?LinkID=2216019',$d);wl 'Download complete - starting silent install (this may take several minutes)';$p=Start-Process $d '/QS /ACTION=Install /FEATURES=SQLEngine /INSTANCENAME=SQLEXPRESS /SQLSVCACCOUNT=&quot;&quot;NT AUTHORITY\SYSTEM&quot;&quot; /SQLSYSADMINACCOUNTS=&quot;&quot;BUILTIN\Administrators&quot;&quot; &quot;&quot;NT AUTHORITY\SYSTEM&quot;&quot; /AGTSVCSTARTUPTYPE=Disabled /BROWSERSVCSTARTUPTYPE=Automatic /IACCEPTSQLSERVERLICENSETERMS' -Wait -PassThru;wl &quot;&quot;SQL Express installer exited with code $$($p.ExitCode)&quot;&quot;;Remove-Item $d -EA Ignore}catch{wl &quot;&quot;ERROR during download/install: $_&quot;&quot;}}else{wl 'SQLEXPRESS already installed - skipping download'}&quot;"
+      Property="WPS_POWERSHELL"
+      ExeCommand="-NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[#FileSqlInstallPs1]&quot; -Schedule"
       Execute="deferred"
       Impersonate="no"
       Return="ignore" />
@@ -76,32 +90,14 @@
 
 
     <!-- ══════════════════════════════════════════════════════════════════
-         2. GRANT NT AUTHORITY\SYSTEM SYSADMIN (always runs on install)
+         2. GRANT NT AUTHORITY\SYSTEM SYSADMIN (pre-existing SQLEXPRESS only;
+         a fresh install is granted by the scheduled task above)
+         Runs as the installing user (Impersonate="yes") so it connects with
+         the elevated admin token, which is sysadmin via BUILTIN\Administrators.
     ══════════════════════════════════════════════════════════════════ -->
-
-    <SetProperty Id="SQLGRANT_PSEXE"
-      Value="[SystemFolder]WindowsPowerShell\v1.0\powershell.exe"
-      Sequence="execute"
-      Before="GrantSqlSystemAccessCA" />
-
-    <!--
-      Runs as the installer user (Impersonate="yes") so it connects to SQL
-      Server with the elevated admin token, which is a sysadmin on the
-      SQLEXPRESS instance (BUILTIN\Administrators is added during install above).
-
-      Uses System.Data.SqlClient via Windows PowerShell 5.1 (.NET Framework)
-      rather than sqlcmd, because sqlcmd is not present on SQL Express Basic
-      installs that do not include the client tools package.
-
-      Steps:
-        1. Wait up to 120 s for MSSQL$SQLEXPRESS to reach Running state.
-        2. Open a .NET SqlConnection as the elevated installer user.
-        3. Create the NT AUTHORITY\SYSTEM Windows login if absent.
-        4. Add SYSTEM to the sysadmin fixed server role if not already a member.
-    -->
     <CustomAction Id="GrantSqlSystemAccessCA"
-      Property="SQLGRANT_PSEXE"
-      ExeCommand="-NonInteractive -ExecutionPolicy Bypass -Command &quot;$log='C:\Windows\Temp\wps-install.log';function wl($m){&quot;&quot;$$(Get-Date -f 'yyyy-MM-dd HH:mm:ss') [SqlGrant] $m&quot;&quot;|Add-Content $log -EA Ignore};wl 'CA started - waiting for MSSQL$SQLEXPRESS';$svc=Get-Service 'MSSQL$SQLEXPRESS' -EA Ignore;if(-not $svc){wl 'ERROR: MSSQL$SQLEXPRESS service not found - SQL Express may not have installed correctly'}else{$d=[DateTime]::Now.AddSeconds(120);do{$s=Get-Service 'MSSQL$SQLEXPRESS' -EA Ignore;if($s -and $s.Status -eq 'Running'){wl 'MSSQL$SQLEXPRESS is Running';break};wl &quot;&quot;Waiting for service (status: $$($s.Status))&quot;&quot;;Start-Sleep 3}while([DateTime]::Now -lt $d);try{Add-Type -AssemblyName System.Data -EA Ignore;$c=New-Object System.Data.SqlClient.SqlConnection('Server=localhost\SQLEXPRESS;Integrated Security=true;TrustServerCertificate=true;Connection Timeout=15');$c.Open();wl 'Connected to SQLEXPRESS as installer user';$q=$c.CreateCommand();$q.CommandText='IF NOT EXISTS(SELECT 1 FROM sys.server_principals WHERE name=N''NT AUTHORITY\SYSTEM'') CREATE LOGIN [NT AUTHORITY\SYSTEM] FROM WINDOWS';$q.ExecuteNonQuery()|Out-Null;$q.CommandText='IF IS_SRVROLEMEMBER(N''sysadmin'',N''NT AUTHORITY\SYSTEM'')!=1 EXEC sp_addsrvrolemember N''NT AUTHORITY\SYSTEM'',N''sysadmin''';$q.ExecuteNonQuery()|Out-Null;$c.Dispose();wl 'NT AUTHORITY\SYSTEM granted sysadmin successfully'}catch{wl &quot;&quot;ERROR granting access: $_&quot;&quot;}}&quot;"
+      Property="WPS_POWERSHELL"
+      ExeCommand="-NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[#FileSqlGrantPs1]&quot;"
       Execute="deferred"
       Impersonate="yes"
       Return="ignore" />
@@ -109,21 +105,19 @@
     <InstallExecuteSequence>
       <Custom Action="GrantSqlSystemAccessCA"
         After="InstallSqlExpressCA"
-        Condition="NOT REMOVE" />
+        Condition="SQLEXPRESS_INSTALLED AND NOT REMOVE" />
     </InstallExecuteSequence>
 
-  </Fragment>
-
-  <!--
-    ActionText table entries — displayed in the progress dialog's status area
-    while each custom action runs.  Without these the progress bar shows the raw
-    action ID ("InstallSqlExpressCA") or nothing at all.
-  -->
-  <Fragment>
+    <!--
+      ActionText table entries — displayed in the progress dialog's status area
+      while each custom action runs.  Without these the progress bar shows the raw
+      action ID ("InstallSqlExpressCA") or nothing at all.
+    -->
     <UI>
-      <ProgressText Action="InstallSqlExpressCA" Message="Downloading and installing SQL Server Express — this may take several minutes…" />
+      <ProgressText Action="InstallSqlExpressCA" Message="Scheduling SQL Server Express installation…" />
       <ProgressText Action="GrantSqlSystemAccessCA" Message="Configuring SQL Server access for Windows services…" />
     </UI>
+
   </Fragment>
 
 </Wix>
